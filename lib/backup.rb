@@ -1,11 +1,12 @@
 # encoding: utf-8
 
 # Load Ruby Core Libraries
-require 'rubygems'
 require 'fileutils'
 require 'tempfile'
+require 'syslog'
 require 'yaml'
 require 'etc'
+require 'forwardable'
 
 require 'open4'
 require 'thor'
@@ -19,7 +20,6 @@ module Backup
   ##
   # Backup's internal paths
   LIBRARY_PATH       = File.join(File.dirname(__FILE__), 'backup')
-  CLI_PATH           = File.join(LIBRARY_PATH, 'cli')
   STORAGE_PATH       = File.join(LIBRARY_PATH, 'storage')
   DATABASE_PATH      = File.join(LIBRARY_PATH, 'database')
   COMPRESSOR_PATH    = File.join(LIBRARY_PATH, 'compressor')
@@ -27,13 +27,6 @@ module Backup
   NOTIFIER_PATH      = File.join(LIBRARY_PATH, 'notifier')
   SYNCER_PATH        = File.join(LIBRARY_PATH, 'syncer')
   TEMPLATE_PATH      = File.expand_path('../../templates', __FILE__)
-
-  ##
-  # Autoload Backup CLI files
-  module CLI
-    autoload :Helpers, File.join(CLI_PATH, 'helpers')
-    autoload :Utility, File.join(CLI_PATH, 'utility')
-  end
 
   ##
   # Autoload Backup storage files
@@ -103,7 +96,6 @@ module Backup
   # Autoload notification files
   module Notifier
     autoload :Base,      File.join(NOTIFIER_PATH, 'base')
-    autoload :Binder,    File.join(NOTIFIER_PATH, 'binder')
     autoload :Mail,      File.join(NOTIFIER_PATH, 'mail')
     autoload :Twitter,   File.join(NOTIFIER_PATH, 'twitter')
     autoload :Campfire,  File.join(NOTIFIER_PATH, 'campfire')
@@ -115,12 +107,13 @@ module Backup
   ##
   # Require Backup base files
   %w{
+    utilities
     archive
     binder
     cleaner
     config
+    cli
     configuration
-    dependency
     errors
     logger
     model
