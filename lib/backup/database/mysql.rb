@@ -34,6 +34,11 @@ module Backup
       # Additional "mysqldump" options
       attr_accessor :additional_options
 
+      ##
+      # Forces mysql to lock database for writes until the dump is completed
+      # it will also save binlog info before the dump runs
+      attr_accessor :lock
+
       def initialize(model, database_id = nil, &block)
         super
         instance_eval(&block) if block_given?
@@ -50,6 +55,12 @@ module Backup
         super
 
         pipeline = Pipeline.new
+
+        #binding.pry
+
+        lock_database if @lock
+        pipeline << fetch_metadata
+
         dump_ext = 'sql'
 
         pipeline << mysqldump
@@ -69,6 +80,8 @@ module Backup
           raise Errors::Database::PipelineError,
               "#{ database_name } Dump Failed!\n" + pipeline.error_messages
         end
+      ensure
+        unlock_database if @lock
       end
 
       private
@@ -116,6 +129,36 @@ module Backup
 
       def dump_all?
         name == :all
+      end
+
+      def lock_database
+        "locking mysql"
+        lock_command = <<-EOS.gsub(/^ +/, '')
+          mysql -e "flush tables with read lock;"
+        EOS
+
+        run(lock_command)
+      end
+
+      def unlock_database
+        unlock_command = <<-EOS.gsub(/^ +/, '')
+          echo 'unlocking mysql'
+        EOS
+
+        run(unlock_command)
+      end
+
+      def fetch_metadata
+        replica_info_command = 'mysql -e "SHOW SLAVE STATUS\G"'
+        master_info_command = 'mysql -e "SHOW MASTER STATUS\G"'
+
+        # save all the info in the node in a hash for ey-core
+        is_slave = run(replica_info_command)
+
+      end
+
+      def db_has_myisam?
+        #detect if any tables are myisam
       end
 
       attr_deprecate :utility_path, :version => '3.0.21',

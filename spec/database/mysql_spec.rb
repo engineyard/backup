@@ -30,6 +30,7 @@ describe Database::MySQL do
       expect( db.skip_tables        ).to be_nil
       expect( db.only_tables        ).to be_nil
       expect( db.additional_options ).to be_nil
+      expect( db.lock               ).to be_nil
     end
 
     it 'configures the database' do
@@ -115,6 +116,32 @@ describe Database::MySQL do
       end
     end # context 'without a compressor'
 
+    it 'should store metadata before running'
+    it 'should not lock database'
+
+    context 'with #lock set to true' do
+      before { db.lock = true }
+
+      it 'locks the database' do
+        db.expects(:lock_database).in_sequence(s)
+        db.expects(:mysqldump).in_sequence(s)
+        db.expects(:log!).in_sequence(s)
+        db.expects(:unlock_database).in_sequence(s)
+
+        db.perform!
+      end
+
+      it 'ensures the database is unlocked' do
+        db.expects(:lock_database).in_sequence(s)
+        db.expects(:mysqldump!).in_sequence(s)
+        db.expects(:unlock_database).in_sequence(s)
+
+        expect do
+          db.perform!
+        end.to raise_error 'an error'
+      end
+    end #context 'with locking enabled'
+
     context 'when the pipeline fails' do
       before do
         Pipeline.any_instance.stubs(:success?).returns(false)
@@ -153,6 +180,7 @@ describe Database::MySQL do
         "mysqldump #{ ' ' * (option_methods.count - 1) }"
       )
     end
+
   end # describe '#mysqldump'
 
   describe 'mysqldump option methods' do

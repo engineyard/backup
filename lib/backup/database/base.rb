@@ -7,6 +7,7 @@ module Backup
       include Backup::Configuration::Helpers
 
       attr_reader :model, :database_id, :dump_path
+      attr_accessor :metadata
 
       ##
       # If given, +database_id+ will be appended to the #dump_filename.

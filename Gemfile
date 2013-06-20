@@ -36,6 +36,11 @@ group :production do
   gem 'ey-core', '~> 0.1.5'
 end
 
+group :development, :test do
+  gem "pry"
+  gem "pry-nav"
+end
+
 gem 'rspec'
 gem 'mocha'
 gem 'timecop'
