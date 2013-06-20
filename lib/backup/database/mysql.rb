@@ -59,8 +59,7 @@ module Backup
         #binding.pry
 
         lock_database if @lock
-        pipeline << fetch_metadata
-
+        metadata = fetch_metadata
         dump_ext = 'sql'
 
         pipeline << mysqldump
@@ -153,8 +152,11 @@ module Backup
         master_info_command = 'mysql -e "SHOW MASTER STATUS\G"'
 
         # save all the info in the node in a hash for ey-core
-        is_slave = run(replica_info_command)
+        backup_metadata = Hash.new
+        backup.metadata['replica_info'] = run(replica_info_command)
+        backup.metadata['master_info'] = run(master_info_command)
 
+        backup_metadata
       end
 
       def db_has_myisam?
