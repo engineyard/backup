@@ -5,7 +5,7 @@ require 'ey-core'
 
 describe 'Backup::Storage::EngineYard' do
   # There are no specs here because the existing storage specs
-  # mock everything including the S3 interactions, for example.
+  # mock everything including the S3 interactions.
   # We've tested the Engine Yard storage backend manually.
   it "actually tests the backend"
 end

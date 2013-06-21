@@ -35,6 +35,10 @@ module Backup
       attr_accessor :additional_options
 
       ##
+      # Single transaction ?
+      attr_accessor :single_transaction
+
+      ##
       # Forces mysql to lock database for writes until the dump is completed
       # it will also save binlog info before the dump runs
       attr_accessor :lock
@@ -56,10 +60,7 @@ module Backup
 
         pipeline = Pipeline.new
 
-        #binding.pry
-
         lock_database if @lock
-        metadata = fetch_metadata
         dump_ext = 'sql'
 
         pipeline << mysqldump
@@ -131,17 +132,18 @@ module Backup
       end
 
       def lock_database
-        "locking mysql"
         lock_command = <<-EOS.gsub(/^ +/, '')
-          mysql -e "flush tables with read lock;"
+          mysql -e 'SET GLOBAL READ_ONLY = 1'
         EOS
 
         run(lock_command)
+        fetch_metadata
       end
 
       def unlock_database
+        binding.pry
         unlock_command = <<-EOS.gsub(/^ +/, '')
-          echo 'unlocking mysql'
+          mysql -e 'SET GLOBAL READ_ONLY = 0'
         EOS
 
         run(unlock_command)
@@ -153,8 +155,8 @@ module Backup
 
         # save all the info in the node in a hash for ey-core
         backup_metadata = Hash.new
-        backup.metadata['replica_info'] = run(replica_info_command)
-        backup.metadata['master_info'] = run(master_info_command)
+        backup_metadata['replica_info'] = run(replica_info_command)
+        backup_metadata['master_info'] = run(master_info_command)
 
         backup_metadata
       end

@@ -116,7 +116,7 @@ describe Database::MySQL do
       end
     end # context 'without a compressor'
 
-    it 'should store metadata before running'
+    it 'should fetch metadata if set'
     it 'should not lock database'
 
     context 'with #lock set to true' do
@@ -133,7 +133,7 @@ describe Database::MySQL do
 
       it 'ensures the database is unlocked' do
         db.expects(:lock_database).in_sequence(s)
-        db.expects(:mysqldump!).in_sequence(s)
+        db.expects(:mysqldump).in_sequence(s).raises('an error')
         db.expects(:unlock_database).in_sequence(s)
 
         expect do
