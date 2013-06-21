@@ -1,5 +1,5 @@
 module Fog
   unless const_defined?(:VERSION)
-    VERSION = '1.8.0'
+    VERSION = '3.6.0.5.pre'
   end
 end
