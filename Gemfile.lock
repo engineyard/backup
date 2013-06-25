@@ -4,13 +4,13 @@ GEM
   specs:
     addressable (2.3.4)
     builder (3.2.0)
-    cistern (0.2.1)
+    cistern (0.2.2)
     coderay (1.0.9)
     diff-lcs (1.2.4)
     dropbox-sdk (1.5.1)
       json
     excon (0.22.1)
-    ey-core (0.1.7)
+    ey-core (0.2.6)
       addressable
       cistern (~> 0.2.0)
       ey-hmac
@@ -121,7 +121,7 @@ PLATFORMS
 DEPENDENCIES
   dropbox-sdk (= 1.5.1)
   excon
-  ey-core (~> 0.1.5)
+  ey-core (~> 0.2.4)
   fog (= 1.10.1)
   fuubar
   guard
