@@ -33,7 +33,7 @@ group :production do
   gem 'twitter'
   gem 'hipchat'
   gem 'json'
-  gem 'ey-core', '~> 0.1.5'
+  gem 'ey-core', '~> 0.2.4'
 end
 
 group :development, :test do
