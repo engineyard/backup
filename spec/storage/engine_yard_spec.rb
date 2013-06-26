@@ -3,10 +3,16 @@
 require File.expand_path('../../spec_helper.rb', __FILE__)
 require 'ey-core'
 
-describe 'Backup::Storage::EngineYard' do
-  # There are no specs here because the existing storage specs
-  # mock everything including the S3 interactions.
-  # We've tested the Engine Yard storage backend manually.
-  it "actually tests the backend"
+module Backup
+  describe Storage::EngineYard do
+    let(:model) { Model.new(:test_trigger, 'test label') }
+    let(:storage) { Storage::EngineYard.new(model) }
+    let(:s) { sequence '' }
+
+    it_behaves_like 'a class that includes Configuration::Helpers'
+    it_behaves_like 'a subclass of Storage::Base' do
+      let(:cycling_supported) { true }
+    end
+  end
 end
 
