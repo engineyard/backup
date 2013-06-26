@@ -2,7 +2,6 @@
 
 ##
 # Only load the Fog gem when the Backup::Storage::Engineyard class is loaded
-Backup::Dependency.load('ey-core')
 
 module Backup
   module Storage
