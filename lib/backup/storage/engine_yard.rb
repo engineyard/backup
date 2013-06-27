@@ -38,17 +38,17 @@ module Backup
       # Transfers the archived file to the specified container
       def transfer!
         backup = connection.backups.create
-        Logger.message "Created backup [#{backup.id}]"
+        Logger.info "Created backup [#{backup.id}]"
 
         files_to_transfer_for(@package) do |local_file, remote_file|
           backup_file = backup.files.create(filename: remote_file)
-          Logger.message "Created backup file [#{backup_file.id}]"
+          Logger.info "Created backup file [#{backup_file.id}]"
 
-          Logger.message "#{storage_name} performing upload of '#{File.join(local_path, local_file)}' to '#{backup_file.upload_url}'."
+          Logger.info "#{storage_name} performing upload of '#{File.join(local_path, local_file)}' to '#{backup_file.upload_url}'."
           backup_file.upload(file: File.join(local_path, local_file))
         end
 
-        Logger.message "Finished uploading files for backup [#{backup.id}]"
+        Logger.info "Finished uploading files for backup [#{backup.id}]"
       end
 
       ##
