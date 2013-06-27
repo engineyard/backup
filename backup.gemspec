@@ -3,7 +3,7 @@
 require File.expand_path('lib/backup/version')
 
 Gem::Specification.new do |gem|
-  gem.name        = 'ey-backup'
+  gem.name        = 'backup'
   gem.version     = Backup::VERSION
   gem.platform    = Gem::Platform::RUBY
   gem.authors     = 'Michael van Rooijen'
