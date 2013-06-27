@@ -2,6 +2,7 @@
 
 ##
 # Only load the Fog gem when the Backup::Storage::Engineyard class is loaded
+require 'ey-core'
 
 module Backup
   module Storage
@@ -12,7 +13,7 @@ module Backup
       attr_accessor :instance_token
 
       ##
-      # Core API URL 
+      # Core API URL
       attr_accessor :core_api_url
 
       ##
@@ -60,4 +61,3 @@ module Backup
     end
   end
 end
-

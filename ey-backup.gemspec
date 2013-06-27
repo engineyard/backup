@@ -51,5 +51,6 @@ Gem::Specification.new do |gem|
   gem.add_dependency 'thor', '= 0.18.1'
   gem.add_dependency 'treetop', '= 1.4.12'
   gem.add_dependency 'twitter', '= 4.6.2'
+  gem.add_dependency 'ey-core', '= 0.2.4'
 end
 
