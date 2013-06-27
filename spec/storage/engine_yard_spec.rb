@@ -5,6 +5,11 @@ require File.expand_path('../../spec_helper.rb', __FILE__)
 
 module Backup
   describe Storage::EngineYard do
+    before do
+      Ey::Core::Client.reset!
+      Ey::Core::Client.mock!
+    end
+
     let(:model) { Model.new(:test_trigger, 'test label') }
     let(:storage) { Storage::EngineYard.new(model) }
     let(:s) { sequence '' }
@@ -38,9 +43,24 @@ module Backup
       end
 
       it 'does not blow up when not mocked' do
-        storage.send(:connection)
+        expect {
+          storage.send(:connection)
+        }.not_to raise_error
       end
     end # describe '#connection'
+
+    describe '#transfer!' do
+      before do
+        storage.instance_token = "0942fee6-6f3d-4d15-bb6f-30672b9de576"
+      end
+
+      it 'transfers the package files' do
+        pending "need core work"
+        expect {
+          storage.send(:transfer!)
+        }.not_to raise_error
+      end
+    end # describe '#transfer!'
   end
 end
 

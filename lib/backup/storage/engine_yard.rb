@@ -40,12 +40,15 @@ module Backup
         backup = connection.backups.create
         Logger.info "Created backup [#{backup.id}]"
 
-        files_to_transfer_for(@package) do |local_file, remote_file|
-          backup_file = backup.files.create(filename: remote_file)
+        package.filenames.each do |filename|
+          src = File.join(Config.tmp_path, filename)
+
+          backup_file = backup.files.create(filename: src)
           Logger.info "Created backup file [#{backup_file.id}]"
 
-          Logger.info "#{storage_name} performing upload of '#{File.join(local_path, local_file)}' to '#{backup_file.upload_url}'."
-          backup_file.upload(file: File.join(local_path, local_file))
+          Logger.info "EngineYard performing upload of '#{File.join(src)}' to '#{backup_file.upload_url}'."
+
+          backup_file.upload(file: File.join(src))
         end
 
         Logger.info "Finished uploading files for backup [#{backup.id}]"
