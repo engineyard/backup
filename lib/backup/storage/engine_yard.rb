@@ -50,8 +50,11 @@ module Backup
 
           backup_file.upload(file: File.join(src))
         end
-
         Logger.info "Finished uploading files for backup [#{backup.id}]"
+
+        backup.finish!
+
+        Logger.info "Finished backup [#{backup.id}]"
       end
 
       ##
