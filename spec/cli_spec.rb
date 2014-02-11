@@ -15,18 +15,14 @@ describe 'Backup::CLI' do
     let(:model_b) { Backup::Model.new(:test_trigger_b, 'test label b') }
     let(:s) { sequence '' }
 
-    after { Backup::Model.all.clear }
+    after { Backup::Model.send(:reset!) }
 
     describe 'setting logger options' do
       let(:logger_options) { Backup::Logger.instance_variable_get(:@config).dsl }
 
       before do
-        Backup::Config.expects(:update).in_sequence(s)
-
-        Backup::Config.expects(:load_config!).in_sequence(s)
-
+        Backup::Config.expects(:load).in_sequence(s)
         Backup::Logger.expects(:start!).in_sequence(s)
-
         model_a.expects(:perform!).in_sequence(s)
         Backup::Logger.expects(:clear!).in_sequence(s)
         model_b.expects(:perform!).in_sequence(s)
@@ -110,11 +106,7 @@ describe 'Backup::CLI' do
 
       before do
         Backup::Logger.expects(:configure).in_sequence(s)
-
-        Backup::Config.expects(:update).in_sequence(s)
-
-        Backup::Config.expects(:load_config!).in_sequence(s)
-
+        Backup::Config.expects(:load).in_sequence(s)
         Backup::Logger.expects(:start!).in_sequence(s)
       end
 
@@ -199,11 +191,7 @@ describe 'Backup::CLI' do
     describe 'failure to prepare for backups' do
       before do
         Backup::Logger.expects(:configure).in_sequence(s)
-
-        Backup::Config.expects(:update).in_sequence(s)
-
         Backup::Logger.expects(:start!).never
-
         model_a.expects(:perform!).never
         model_b.expects(:perform!).never
         Backup::Logger.expects(:clear!).never
@@ -211,14 +199,13 @@ describe 'Backup::CLI' do
 
       describe 'when errors are raised while loading config.rb' do
         before do
-          Backup::Config.expects(:load_config!).in_sequence(s).
-              raises('config load error')
+          Backup::Config.expects(:load).in_sequence(s).raises('config load error')
         end
 
         it 'aborts with status code 3 and logs messages to the console only' do
 
           Backup::Logger.expects(:error).in_sequence(s).with do |err|
-            err.should be_a(Backup::Errors::CLIError)
+            err.should be_a(Backup::CLI::Error)
             err.message.should match(/config load error/)
           end
 
@@ -235,12 +222,12 @@ describe 'Backup::CLI' do
 
       describe 'when no models are found for the given triggers' do
         before do
-          Backup::Config.expects(:load_config!).in_sequence(s)
+          Backup::Config.expects(:load).in_sequence(s)
         end
 
         it 'aborts and logs messages to the console only' do
           Backup::Logger.expects(:error).in_sequence(s).with do |err|
-            err.should be_a(Backup::Errors::CLIError)
+            err.should be_a(Backup::CLI::Error)
             err.message.should match(
               /No Models found for trigger\(s\) 'test_trigger_foo'/
             )
@@ -265,7 +252,7 @@ describe 'Backup::CLI' do
       let(:notifier_d) { mock }
 
       before do
-        Backup::Config.stubs(:load_config!)
+        Backup::Config.stubs(:load)
         Backup::Logger.stubs(:start!)
         model_a.stubs(:notifiers).returns([notifier_a, notifier_c])
         model_b.stubs(:notifiers).returns([notifier_b, notifier_d])
@@ -393,7 +380,7 @@ describe 'Backup::CLI' do
 
   describe '#check' do
     it 'fails if errors are raised' do
-      Backup::Config.stubs(:load_config!).raises('an error')
+      Backup::Config.stubs(:load).raises('an error')
 
       out, err = capture_io do
         ARGV.replace(['check'])
@@ -408,7 +395,7 @@ describe 'Backup::CLI' do
     end
 
     it 'fails if warnings are issued' do
-      Backup::Config.stubs(:load_config!).with do
+      Backup::Config.stubs(:load).with do
         Backup::Logger.warn 'warning message'
       end
 
@@ -425,7 +412,7 @@ describe 'Backup::CLI' do
     end
 
     it 'succeeds if there are no errors or warnings' do
-      Backup::Config.stubs(:load_config!)
+      Backup::Config.stubs(:load)
 
       out, err = capture_io do
         ARGV.replace(['check'])
@@ -438,16 +425,17 @@ describe 'Backup::CLI' do
       expect( out ).to match(/\[info\] Configuration Check Succeeded/)
     end
 
-    it 'updates path to config.rb if given' do
-      Backup::Config.stubs(:load_config!)
+    it 'uses --config-file if given' do
+      # Note: Thor#options is returning a HashWithIndifferentAccess.
+      Backup::Config.expects(:load).with do |options|
+        options[:config_file] == '/my/config.rb'
+      end
       Backup::Logger.stubs(:abort!) # suppress output
 
       ARGV.replace(['check', '--config-file', '/my/config.rb'])
       expect do
         cli.start
       end.to raise_error(SystemExit) {|exit| expect( exit.status ).to be(0) }
-
-      expect( Backup::Config.config_file ).to eq '/my/config.rb'
     end
   end # describe '#check'
 
@@ -461,7 +449,7 @@ describe 'Backup::CLI' do
       FileUtils.rm_r(@tmpdir, :force => true, :secure => true)
     end
 
-    context 'when given a config_path' do
+    context 'when given a --config-file' do
       context 'when no config file exists' do
         it 'should create both a config and a model under the given path' do
           Dir.chdir(@tmpdir) do |path|
@@ -470,15 +458,15 @@ describe 'Backup::CLI' do
 
             out, err = capture_io do
               ARGV.replace(['generate:model',
-                 '--config-path', File.join(path, 'custom'),
+                 '--config-file', config_file,
                  '--trigger', 'my test#trigger'
               ])
               cli.start
             end
 
             err.should be_empty
-            out.should == "Generated model file: '#{ model_file }'.\n" +
-                "Generated configuration file: '#{ config_file }'.\n"
+            out.should == "Generated configuration file: '#{ config_file }'.\n" +
+                          "Generated model file: '#{ model_file }'.\n"
             File.exist?(model_file).should be_true
             File.exist?(config_file).should be_true
           end
@@ -493,9 +481,12 @@ describe 'Backup::CLI' do
             FileUtils.mkdir_p(File.join(path, 'custom'))
             FileUtils.touch(config_file)
 
+            cli::Helpers.expects(:overwrite?).with(config_file).never
+            cli::Helpers.expects(:overwrite?).with(model_file).returns(true)
+
             out, err = capture_io do
               ARGV.replace(['generate:model',
-                 '--config-path', File.join(path, 'custom'),
+                 '--config-file', config_file,
                  '--trigger', 'my+test@trigger'
               ])
               cli.start
@@ -506,28 +497,6 @@ describe 'Backup::CLI' do
             File.exist?(model_file).should be_true
           end
         end
-
-        it 'should abort if --config-path is the path to config.rb itself' do
-          Dir.chdir(@tmpdir) do |path|
-            config_file = File.join(path, 'custom', 'config.rb')
-            FileUtils.mkdir_p(File.join(path, 'custom'))
-            FileUtils.touch(config_file)
-
-            out, err = capture_io do
-              ARGV.replace(['generate:model',
-                 '--config-path', config_file,
-                 '--trigger', 'foo'
-              ])
-              expect do
-                cli.start
-              end.to raise_error(SystemExit)
-            end
-
-            err.should == "--config-path should be a directory, not a file.\n"
-            out.should be_empty
-          end
-
-        end
       end
 
       context 'when a model file already exists' do
@@ -535,31 +504,32 @@ describe 'Backup::CLI' do
           Dir.chdir(@tmpdir) do |path|
             model_file  = File.join(path, 'models', 'test_trigger.rb')
             config_file = File.join(path, 'config.rb')
+            FileUtils.mkdir_p(File.dirname(model_file))
+            FileUtils.touch(model_file)
 
-            cli::Helpers.expects(:overwrite?).with(model_file).returns(false)
+            $stdin.expects(:gets).returns('n')
 
             out, err = capture_io do
               ARGV.replace(['generate:model',
-                  '--config-path', path,
+                  '--config-file', config_file,
                   '--trigger', 'test_trigger'
               ])
               cli.start
             end
 
-            err.should be_empty
+            err.should include('Do you want to overwrite?')
             out.should == "Generated configuration file: '#{ config_file }'.\n"
             File.exist?(config_file).should be_true
-            File.exist?(model_file).should be_false
           end
         end
       end
 
-    end # context 'when given a config_path'
+    end # context 'when given a --config-file'
 
-    context 'when not given a config_path' do
+    context 'when not given a --config-file' do
       it 'should create both a config and a model under the root path' do
         Dir.chdir(@tmpdir) do |path|
-          Backup::Config.update(:root_path => path)
+          Backup::Config.send(:update, :root_path => path)
           model_file  = File.join(path, 'models', 'test_trigger.rb')
           config_file = File.join(path, 'config.rb')
 
@@ -569,8 +539,8 @@ describe 'Backup::CLI' do
           end
 
           err.should be_empty
-          out.should == "Generated model file: '#{ model_file }'.\n" +
-              "Generated configuration file: '#{ config_file }'.\n"
+          out.should == "Generated configuration file: '#{ config_file }'.\n" +
+                        "Generated model file: '#{ model_file }'.\n"
           File.exist?(model_file).should be_true
           File.exist?(config_file).should be_true
         end
@@ -582,9 +552,9 @@ describe 'Backup::CLI' do
         databases (mongodb, mysql, postgresql, redis, riak)
         storages (cloud_files, dropbox, ftp, local, ninefold, rsync, s3, scp, sftp)
         syncers (cloud_files, rsync_local, rsync_pull, rsync_push, s3)
-        encryptors (gpg, openssl)
-        compressors (bzip2, custom, gzip, lzma, pbzip2)
-        notifiers (campfire, hipchat, mail, prowl, pushover, twitter)
+        encryptor (gpg, openssl)
+        compressor (bzip2, custom, gzip)
+        notifiers (campfire, hipchat, http_post, mail, nagios, prowl, pushover, twitter)
       EOS
 
       out, err = capture_io do
@@ -610,14 +580,14 @@ describe 'Backup::CLI' do
       FileUtils.rm_r(@tmpdir, :force => true, :secure => true)
     end
 
-    context 'when given a config_path' do
+    context 'when given a --config-file' do
       it 'should create a config file in the given path' do
         Dir.chdir(@tmpdir) do |path|
-          config_file = File.join(path, 'custom', 'config.rb')
+          config_file = File.join(path, 'custom', 'my_config.rb')
 
           out, err = capture_io do
             ARGV.replace(['generate:config',
-                '--config-path', File.join(path, 'custom'),
+                '--config-file', config_file
             ])
             cli.start
           end
@@ -629,10 +599,10 @@ describe 'Backup::CLI' do
       end
     end
 
-    context 'when not given a config_path' do
+    context 'when not given a --config-file' do
       it 'should create a config file in the root path' do
         Dir.chdir(@tmpdir) do |path|
-          Backup::Config.update(:root_path => path)
+          Backup::Config.send(:update, :root_path => path)
           config_file = File.join(path, 'config.rb')
 
           out, err = capture_io do
@@ -650,77 +620,25 @@ describe 'Backup::CLI' do
     context 'when a config file already exists' do
       it 'should prompt to overwrite the config file' do
         Dir.chdir(@tmpdir) do |path|
-          Backup::Config.update(:root_path => path)
+          Backup::Config.send(:update, :root_path => path)
           config_file = File.join(path, 'config.rb')
+          FileUtils.mkdir_p(File.dirname(config_file))
+          FileUtils.touch(config_file)
 
-          cli::Helpers.expects(:overwrite?).with(config_file).returns(false)
+          $stdin.expects(:gets).returns('n')
 
           out, err = capture_io do
             ARGV.replace(['generate:config'])
             cli.start
           end
 
-          err.should be_empty
+          err.should include('Do you want to overwrite?')
           out.should be_empty
-          File.exist?(config_file).should be_false
         end
       end
     end
 
   end # describe '#generate:config'
-
-  describe '#decrypt' do
-
-    it 'should perform OpenSSL decryption' do
-      ARGV.replace(['decrypt', '--encryptor', 'openssl',
-                    '--in', 'in_file',
-                    '--out', 'out_file',
-                    '--base64', '--salt',
-                    '--password-file', 'pwd_file'])
-
-      cli::Helpers.expects(:exec!).with(
-        "openssl aes-256-cbc -d -base64 -pass file:pwd_file -salt " +
-        "-in 'in_file' -out 'out_file'"
-      )
-      cli.start
-    end
-
-    it 'should omit -pass option if no --password-file given' do
-      ARGV.replace(['decrypt', '--encryptor', 'openssl',
-                    '--in', 'in_file',
-                    '--out', 'out_file',
-                    '--base64', '--salt'])
-
-      cli::Helpers.expects(:exec!).with(
-        "openssl aes-256-cbc -d -base64  -salt " +
-        "-in 'in_file' -out 'out_file'"
-      )
-      cli.start
-    end
-
-    it 'should perform GnuPG decryption' do
-      ARGV.replace(['decrypt', '--encryptor', 'gpg',
-                    '--in', 'in_file',
-                    '--out', 'out_file'])
-
-      cli::Helpers.expects(:exec!).with(
-        "gpg -o 'out_file' -d 'in_file'"
-      )
-      cli.start
-    end
-
-    it 'should show a message if given an invalid encryptor' do
-      ARGV.replace(['decrypt', '--encryptor', 'foo',
-                    '--in', 'in_file',
-                    '--out', 'out_file'])
-      out, err = capture_io do
-        cli.start
-      end
-      err.should == ''
-      out.should == "Unknown encryptor: foo\n" +
-          "Use either 'openssl' or 'gpg'.\n"
-    end
-  end # describe '#decrypt'
 
   describe '#version' do
     specify 'using `backup version`' do

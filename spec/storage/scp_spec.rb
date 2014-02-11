@@ -8,10 +8,9 @@ describe Storage::SCP do
   let(:storage) { Storage::SCP.new(model) }
   let(:s) { sequence '' }
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
-  it_behaves_like 'a subclass of Storage::Base' do
-    let(:cycling_supported) { true }
-  end
+  it_behaves_like 'a class that includes Config::Helpers'
+  it_behaves_like 'a subclass of Storage::Base'
+  it_behaves_like 'a storage that cycles'
 
   describe '#initialize' do
 
@@ -20,6 +19,7 @@ describe Storage::SCP do
       expect( storage.keep        ).to be_nil
       expect( storage.username    ).to be_nil
       expect( storage.password    ).to be_nil
+      expect( storage.ssh_options ).to eq({})
       expect( storage.ip          ).to be_nil
       expect( storage.port        ).to be 22
       expect( storage.path        ).to eq 'backups'
@@ -28,17 +28,19 @@ describe Storage::SCP do
     it 'configures the storage' do
       storage = Storage::SCP.new(model, :my_id) do |scp|
         scp.keep = 2
-        scp.username = 'my_username'
-        scp.password = 'my_password'
-        scp.ip       = 'my_host'
-        scp.port     = 123
-        scp.path     = 'my/path'
+        scp.username    = 'my_username'
+        scp.password    = 'my_password'
+        scp.ssh_options = { :keys => ['my/key'] }
+        scp.ip          = 'my_host'
+        scp.port        = 123
+        scp.path        = 'my/path'
       end
 
       expect( storage.storage_id  ).to eq 'my_id'
       expect( storage.keep        ).to be 2
       expect( storage.username    ).to eq 'my_username'
       expect( storage.password    ).to eq 'my_password'
+      expect( storage.ssh_options ).to eq :keys => ['my/key']
       expect( storage.ip          ).to eq 'my_host'
       expect( storage.port        ).to be 123
       expect( storage.path        ).to eq 'my/path'
@@ -67,11 +69,13 @@ describe Storage::SCP do
       storage.ip = '123.45.678.90'
       storage.username = 'my_user'
       storage.password = 'my_pass'
+      storage.ssh_options = { :keys => ['my/key'] }
     end
 
     it 'yields a connection to the remote server' do
       Net::SSH.expects(:start).with(
-        '123.45.678.90', 'my_user', :password => 'my_pass', :port => 22
+        '123.45.678.90', 'my_user', :password => 'my_pass', :port => 22,
+        :keys => ['my/key']
       ).yields(connection)
 
       storage.send(:connection) do |scp|
@@ -170,8 +174,8 @@ describe Storage::SCP do
         expect do
           storage.send(:remove!, package)
         end.to raise_error {|err|
-          expect( err ).to be_an_instance_of Errors::Storage::SCP::SSHError
-          expect( err.message ).to eq "Storage::SCP::SSHError: " +
+          expect( err ).to be_an_instance_of Storage::SCP::Error
+          expect( err.message ).to eq "Storage::SCP::Error: " +
             "Net::SSH reported the following errors:\n" +
             "  path not found"
         }

@@ -3,6 +3,8 @@
 module Backup
   class Logger
     class Logfile
+      class Error < Backup::Error; end
+
       class Options
         ##
         # Enable the use of Backup's log file.
@@ -87,7 +89,11 @@ module Backup
           path = File.join(Backup::Config.root_path, path)
         end
         FileUtils.mkdir_p(path)
-        File.join(path, 'backup.log')
+        path = File.join(path, 'backup.log')
+        if File.exist?(path) && !File.writable?(path)
+          raise Error, "Log File at '#{ path }' is not writable"
+        end
+        path
       end
 
       ##
@@ -96,7 +102,7 @@ module Backup
         return unless File.exist?(@logfile)
 
         if File.stat(@logfile).size > @options.max_bytes
-          FileUtils.mv(@logfile, @logfile + '~')
+          FileUtils.cp(@logfile, @logfile + '~')
           File.open(@logfile + '~', 'r') do |io_in|
             File.open(@logfile, 'w') do |io_out|
               io_in.seek(-@options.max_bytes, IO::SEEK_END) && io_in.gets

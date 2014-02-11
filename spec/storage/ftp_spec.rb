@@ -8,10 +8,9 @@ describe Storage::FTP do
   let(:storage) { Storage::FTP.new(model) }
   let(:s) { sequence '' }
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
-  it_behaves_like 'a subclass of Storage::Base' do
-    let(:cycling_supported) { true }
-  end
+  it_behaves_like 'a class that includes Config::Helpers'
+  it_behaves_like 'a subclass of Storage::Base'
+  it_behaves_like 'a storage that cycles'
 
   describe '#initialize' do
 

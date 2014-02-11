@@ -3,6 +3,7 @@
 module Backup
   module Database
     class MongoDB < Base
+      class Error < Backup::Error; end
 
       ##
       # Name of the database that needs to get dumped
@@ -109,8 +110,7 @@ module Backup
           FileUtils.rm_rf dump_packaging_path
           log!(:finished)
         else
-          raise Errors::Database::PipelineError,
-              "#{ database_name } Dump Failed!\n" + pipeline.error_messages
+          raise Error, "Dump Failed!\n" + pipeline.error_messages
         end
       end
 
@@ -180,24 +180,6 @@ module Backup
         cmd << " '#{ name }'" if name
         cmd
       end
-
-      attr_deprecate :utility_path, :version => '3.0.21',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { mongodump val }
-          }
-
-      attr_deprecate :mongodump_utility, :version => '3.3.0',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { mongodump val }
-          }
-
-      attr_deprecate :mongo_utility, :version => '3.3.0',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { mongo val }
-          }
 
     end
   end

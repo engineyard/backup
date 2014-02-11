@@ -17,7 +17,6 @@ module Backup
     # There are no specs here because the existing storage specs
     # mock everything including the S3 interactions.
     # We've tested the Engine Yard storage backend manually.
-    it_behaves_like 'a class that includes Configuration::Helpers'
     it_behaves_like 'a subclass of Storage::Base' do
       let(:cycling_supported) { true }
     end

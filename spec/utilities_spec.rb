@@ -16,20 +16,17 @@ describe Backup::Utilities do
 
       utilities.configure do
         # General Utilites
-        tar   '/path/to/tar'
+        tar      '/path/to/tar'
         tar_dist :gnu   # or :bsd
-        cat   '/path/to/cat'
-        split '/path/to/split'
-        find  '/path/to/find'
-        xargs '/path/to/xargs'
-        sudo  '/path/to/sudo'
-        chown '/path/to/chown'
+        cat      '/path/to/cat'
+        split    '/path/to/split'
+        sudo     '/path/to/sudo'
+        chown    '/path/to/chown'
+        hostname '/path/to/hostname'
 
         # Compressors
         gzip    '/path/to/gzip'
         bzip2   '/path/to/bzip2'
-        lzma    '/path/to/lzma'   # deprecated
-        pbzip2  '/path/to/pbzip2' # deprecated
 
         # Database Utilities
         mongo       '/path/to/mongo'
@@ -51,6 +48,7 @@ describe Backup::Utilities do
         # Notifiers
         sendmail  '/path/to/sendmail'
         exim      '/path/to/exim'
+        send_nsca '/path/to/send_nsca'
       end
     end
 
@@ -91,7 +89,7 @@ describe Backup::Utilities do
         utilities.configure do
           tar 'not_found'
         end
-      end.to raise_error(Backup::Errors::Utilities::NotFoundError)
+      end.to raise_error(Backup::Utilities::Error)
     end
   end # describe '.configure'
 
@@ -179,7 +177,7 @@ describe Backup::Utilities::Helpers do
 
       expect do
         helpers.send(:utility, :unknown)
-      end.to raise_error(Backup::Errors::Utilities::NotFoundError) {|err|
+      end.to raise_error(Backup::Utilities::Error) {|err|
         err.message.should match(/Could not locate 'unknown'/)
       }
     end
@@ -189,8 +187,7 @@ describe Backup::Utilities::Helpers do
       expect do
         helpers.send(:utility, nil)
       end.to raise_error(
-        Backup::Errors::Utilities::NotFoundError,
-          'Utilities::NotFoundError: Utility Name Empty'
+        Backup::Utilities::Error, 'Utilities::Error: Utility Name Empty'
       )
     end
 
@@ -199,8 +196,7 @@ describe Backup::Utilities::Helpers do
       expect do
         helpers.send(:utility, ' ')
       end.to raise_error(
-        Backup::Errors::Utilities::NotFoundError,
-          'Utilities::NotFoundError: Utility Name Empty'
+        Backup::Utilities::Error, 'Utilities::Error: Utility Name Empty'
       )
     end
   end # describe '#utility'
@@ -320,7 +316,7 @@ describe Backup::Utilities::Helpers do
     context 'when the command is not successful' do
       let(:process_success) { false }
       let(:message_head) do
-        "Utilities::SystemCallError: 'cmd_name' failed with exit status: 1\n"
+        "Utilities::Error: 'cmd_name' failed with exit status: 1\n"
       end
 
       before do
@@ -416,7 +412,7 @@ describe Backup::Utilities::Helpers do
       it 'should raise an error wrapping the system error raised' do
         expect do
           helpers.send(:run, command)
-        end.to raise_error(Backup::Errors::Utilities::SystemCallError) {|err|
+        end.to raise_error(Backup::Utilities::Error) {|err|
           err.message.should match("Failed to execute 'cmd_name'")
           err.message.should match('RuntimeError: exec call failed')
         }

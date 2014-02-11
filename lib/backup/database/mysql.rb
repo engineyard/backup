@@ -3,6 +3,7 @@
 module Backup
   module Database
     class MySQL < Base
+      class Error < Backup::Error; end
 
       ##
       # Name of the database that needs to get dumped
@@ -77,8 +78,7 @@ module Backup
         if pipeline.success?
           log!(:finished)
         else
-          raise Errors::Database::PipelineError,
-              "#{ database_name } Dump Failed!\n" + pipeline.error_messages
+          raise Error, "Dump Failed!\n" + pipeline.error_messages
         end
       ensure
         unlock_database if @lock
@@ -164,19 +164,6 @@ module Backup
       def db_has_myisam?
         #detect if any tables are myisam
       end
-
-      attr_deprecate :utility_path, :version => '3.0.21',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { mysqldump val }
-          }
-
-      attr_deprecate :mysqldump_utility, :version => '3.3.0',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { mysqldump val }
-          }
-
     end
   end
 end

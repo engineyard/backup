@@ -4,10 +4,23 @@ require 'dropbox_sdk'
 module Backup
   module Storage
     class Dropbox < Base
+      include Storage::Cycler
+      class Error < Backup::Error; end
 
       ##
       # Dropbox API credentials
       attr_accessor :api_key, :api_secret
+
+      ##
+      # Path to store cached authorized session.
+      #
+      # Relative paths will be expanded using Config.root_path,
+      # which by default is ~/Backup unless --root-path was used
+      # on the command line or set in config.rb.
+      #
+      # By default, +cache_path+ is '.cache', which would be
+      # '~/Backup/.cache/' if using the default root_path.
+      attr_accessor :cache_path
 
       ##
       # Dropbox Access Type
@@ -21,23 +34,27 @@ module Backup
       attr_accessor :chunk_size
 
       ##
-      # Number of times to retry a failed chunk.
-      attr_accessor :chunk_retries
+      # Number of times to retry failed operations.
+      #
+      # Default: 10
+      attr_accessor :max_retries
 
       ##
-      # Seconds to wait between chunk retries.
+      # Time in seconds to pause before each retry.
+      #
+      # Default: 30
       attr_accessor :retry_waitsec
 
       ##
       # Creates a new instance of the storage object
-      def initialize(model, storage_id = nil, &block)
+      def initialize(model, storage_id = nil)
         super
-        instance_eval(&block) if block_given?
 
         @path           ||= 'backups'
+        @cache_path     ||= '.cache'
         @access_type    ||= :app_folder
         @chunk_size     ||= 4 # MiB
-        @chunk_retries  ||= 10
+        @max_retries    ||= 10
         @retry_waitsec  ||= 30
         path.sub!(/^\//, '')
       end
@@ -50,7 +67,7 @@ module Backup
       # authorization successfully took place. If this is the case, then the
       # user hits 'enter' and the session will be properly established.
       # Immediately after establishing the session, the session will be
-      # serialized and written to a cache file in Backup::Config.cache_path.
+      # serialized and written to a cache file in +cache_path+.
       # The cached file will be used from that point on to re-establish a
       # connection with Dropbox at a later time. This allows the user to avoid
       # having to go to a new Dropbox URL to authorize over and over again.
@@ -66,7 +83,7 @@ module Backup
         @connection = DropboxClient.new(session, access_type)
 
       rescue => err
-        raise Errors::Storage::Dropbox::ConnectionError.wrap(err)
+        raise Error.wrap(err, 'Authorization Failed')
       end
 
       ##
@@ -79,7 +96,7 @@ module Backup
             Logger.info "Session data loaded from cache!"
 
           rescue => err
-            Logger.warn Errors::Storage::Dropbox::CacheError.wrap(err, <<-EOS)
+            Logger.warn Error.wrap(err, <<-EOS)
               Could not read session data from cache.
               Cache data might be corrupt.
             EOS
@@ -114,20 +131,18 @@ module Backup
         end
 
       rescue => err
-        raise Errors::Storage::Dropbox::TransferError.wrap(err, 'Upload Failed!')
+        raise Error.wrap(err, 'Upload Failed!')
       end
 
-      # Timeout::Error is not a StandardError under ruby-1.8.7
       def with_retries
         retries = 0
         begin
           yield
-        rescue StandardError, Timeout::Error => err
+        rescue StandardError => err
           retries += 1
-          raise if retries > chunk_retries
+          raise if retries > max_retries
 
-          Logger.info Errors::Storage::Dropbox::TransferError.
-              wrap(err, "Retry ##{ retries } of #{ chunk_retries }.")
+          Logger.info Error.wrap(err, "Retry ##{ retries } of #{ max_retries }.")
           sleep(retry_waitsec)
           retry
         end
@@ -142,13 +157,15 @@ module Backup
       end
 
       def cached_file
-        File.join(Config.cache_path, api_key + api_secret)
+        path = cache_path.start_with?('/') ?
+               cache_path : File.join(Config.root_path, cache_path)
+        File.join(path, api_key + api_secret)
       end
 
       ##
       # Serializes and writes the Dropbox session to a cache file
       def write_cache!(session)
-        FileUtils.mkdir_p(Config.cache_path)
+        FileUtils.mkdir_p File.dirname(cached_file)
         File.open(cached_file, "w") do |cache_file|
           cache_file.write(session.serialize)
         end
@@ -186,15 +203,9 @@ module Backup
 
         session
 
-        rescue => err
-          raise Errors::Storage::Dropbox::AuthenticationError.wrap(
-            err, 'Could not create or authenticate a new session'
-          )
+      rescue => err
+        raise Error.wrap(err, 'Could not create or authenticate a new session')
       end
-
-      attr_deprecate :email,    :version => '3.0.17'
-      attr_deprecate :password, :version => '3.0.17'
-      attr_deprecate :timeout,  :version => '3.0.21'
 
     end
   end

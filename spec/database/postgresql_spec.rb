@@ -9,15 +9,13 @@ describe Database::PostgreSQL do
   let(:s) { sequence '' }
 
   before do
-    Database::PostgreSQL.any_instance.stubs(:utility).
-        with(:pg_dump).returns('pg_dump')
-    Database::PostgreSQL.any_instance.stubs(:utility).
-        with(:pg_dumpall).returns('pg_dumpall')
-    Database::PostgreSQL.any_instance.stubs(:utility).
-        with(:cat).returns('cat')
+    Utilities.stubs(:utility).with(:pg_dump).returns('pg_dump')
+    Utilities.stubs(:utility).with(:pg_dumpall).returns('pg_dumpall')
+    Utilities.stubs(:utility).with(:cat).returns('cat')
+    Utilities.stubs(:utility).with(:sudo).returns('sudo')
   end
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
+  it_behaves_like 'a class that includes Config::Helpers'
   it_behaves_like 'a subclass of Database::Base'
 
   describe '#initialize' do
@@ -26,6 +24,7 @@ describe Database::PostgreSQL do
       expect( db.name               ).to eq :all
       expect( db.username           ).to be_nil
       expect( db.password           ).to be_nil
+      expect( db.sudo_user          ).to be_nil
       expect( db.host               ).to be_nil
       expect( db.port               ).to be_nil
       expect( db.socket             ).to be_nil
@@ -39,6 +38,7 @@ describe Database::PostgreSQL do
         pgsql.name               = 'my_name'
         pgsql.username           = 'my_username'
         pgsql.password           = 'my_password'
+        pgsql.sudo_user          = 'my_sudo_user'
         pgsql.host               = 'my_host'
         pgsql.port               = 'my_port'
         pgsql.socket             = 'my_socket'
@@ -51,6 +51,7 @@ describe Database::PostgreSQL do
       expect( db.name               ).to eq 'my_name'
       expect( db.username           ).to eq 'my_username'
       expect( db.password           ).to eq 'my_password'
+      expect( db.sudo_user          ).to eq 'my_sudo_user'
       expect( db.host               ).to eq 'my_host'
       expect( db.port               ).to eq 'my_port'
       expect( db.socket             ).to eq 'my_socket'
@@ -150,9 +151,9 @@ describe Database::PostgreSQL do
       it 'raises an error' do
         expect do
           db.perform!
-        end.to raise_error(Errors::Database::PipelineError) {|err|
-          expect( err.message ).to match(
-            "Database::PostgreSQL Dump Failed!\n  error messages"
+        end.to raise_error(Database::PostgreSQL::Error) {|err|
+          expect( err.message ).to eq(
+            "Database::PostgreSQL::Error: Dump Failed!\n  error messages"
           )
         }
       end
@@ -165,19 +166,21 @@ describe Database::PostgreSQL do
       username_option connectivity_options
       user_options tables_to_dump tables_to_skip name
     ]}
-    # password_option leaves no leading space if it's not used
+    # password_option and sudo_option leave no leading space if it's not used
 
     it 'returns full pg_dump command built from all options' do
       option_methods.each {|name| db.stubs(name).returns(name) }
       db.stubs(:password_option).returns('password_option')
+      db.stubs(:sudo_option).returns('sudo_option')
       expect( db.send(:pgdump) ).to eq(
-        "password_optionpg_dump #{ option_methods.join(' ') }"
+        "password_optionsudo_optionpg_dump #{ option_methods.join(' ') }"
       )
     end
 
     it 'handles nil values from option methods' do
       option_methods.each {|name| db.stubs(name).returns(nil) }
       db.stubs(:password_option).returns(nil)
+      db.stubs(:sudo_option).returns(nil)
       expect( db.send(:pgdump) ).to eq(
         "pg_dump #{ ' ' * (option_methods.count - 1) }"
       )
@@ -188,19 +191,21 @@ describe Database::PostgreSQL do
     let(:option_methods) {%w[
       username_option connectivity_options user_options
     ]}
-    # password_option leaves no leading space if it's not used
+    # password_option and sudo_option leave no leading space if it's not used
 
     it 'returns full pg_dump command built from all options' do
       option_methods.each {|name| db.stubs(name).returns(name) }
       db.stubs(:password_option).returns('password_option')
+      db.stubs(:sudo_option).returns('sudo_option')
       expect( db.send(:pgdumpall) ).to eq(
-        "password_optionpg_dumpall #{ option_methods.join(' ') }"
+        "password_optionsudo_optionpg_dumpall #{ option_methods.join(' ') }"
       )
     end
 
     it 'handles nil values from option methods' do
       option_methods.each {|name| db.stubs(name).returns(nil) }
       db.stubs(:password_option).returns(nil)
+      db.stubs(:sudo_option).returns(nil)
       expect( db.send(:pgdumpall) ).to eq(
         "pg_dumpall #{ ' ' * (option_methods.count - 1) }"
       )
@@ -217,6 +222,15 @@ describe Database::PostgreSQL do
         expect( db.send(:password_option) ).to eq "PGPASSWORD='my_password' "
       end
     end # describe '#password_option'
+
+    describe '#sudo_option' do
+      it 'returns argument if specified' do
+        expect( db.send(:sudo_option) ).to be_nil
+
+        db.sudo_user = 'my_sudo_user'
+        expect( db.send(:sudo_option) ).to eq 'sudo -n -u my_sudo_user '
+      end
+    end # describe '#sudo_option'
 
     describe '#username_option' do
       it 'returns argument if specified' do
@@ -303,84 +317,6 @@ describe Database::PostgreSQL do
     end # describe '#tables_to_dump'
 
   end # describe 'pgdump option methods'
-
-  describe 'deprecations' do
-
-    describe '#utility_path' do
-      before do
-        # to satisfy Utilities.configure
-        File.stubs(:executable?).with('/foo').returns(true)
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use Backup::Utilities\.configure instead/
-          )
-        }
-      end
-      after do
-        Database::PostgreSQL.clear_defaults!
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Database::PostgreSQL.new(model) do |db|
-            db.utility_path = '/foo'
-          end
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['pg_dump'] ).to eq '/foo'
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Database::PostgreSQL.defaults do |db|
-            db.utility_path = '/foo'
-          end
-          Database::PostgreSQL.new(model)
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['pg_dump'] ).to eq '/foo'
-        end
-      end
-    end # describe '#utility_path'
-
-    describe '#pg_dump_utility' do
-      before do
-        # to satisfy Utilities.configure
-        File.stubs(:executable?).with('/foo').returns(true)
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use Backup::Utilities\.configure instead/
-          )
-        }
-      end
-      after do
-        Database::PostgreSQL.clear_defaults!
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Database::PostgreSQL.new(model) do |db|
-            db.pg_dump_utility = '/foo'
-          end
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['pg_dump'] ).to eq '/foo'
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Database::PostgreSQL.defaults do |db|
-            db.pg_dump_utility = '/foo'
-          end
-          Database::PostgreSQL.new(model)
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['pg_dump'] ).to eq '/foo'
-        end
-      end
-    end # describe '#pg_dump_utility'
-
-  end # describe 'deprecations' do
 
 end
 end

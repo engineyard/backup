@@ -7,9 +7,16 @@ require 'syslog'
 require 'yaml'
 require 'etc'
 require 'forwardable'
+require 'thread'
 
 require 'open4'
 require 'thor'
+
+require 'excon'
+# Include response.inspect in error messages.
+Excon.defaults[:debug_response] = true
+# Excon should not retry failed requests. We handle that.
+Excon.defaults[:middlewares].delete(Excon::Middleware::Idempotent)
 
 ##
 # The Backup Ruby Gem
@@ -19,11 +26,11 @@ module Backup
   # Backup's internal paths
   LIBRARY_PATH       = File.join(File.dirname(__FILE__), 'backup')
   STORAGE_PATH       = File.join(LIBRARY_PATH, 'storage')
+  SYNCER_PATH        = File.join(LIBRARY_PATH, 'syncer')
   DATABASE_PATH      = File.join(LIBRARY_PATH, 'database')
   COMPRESSOR_PATH    = File.join(LIBRARY_PATH, 'compressor')
   ENCRYPTOR_PATH     = File.join(LIBRARY_PATH, 'encryptor')
   NOTIFIER_PATH      = File.join(LIBRARY_PATH, 'notifier')
-  SYNCER_PATH        = File.join(LIBRARY_PATH, 'syncer')
   TEMPLATE_PATH      = File.expand_path('../../templates', __FILE__)
 
   ##
@@ -32,7 +39,7 @@ module Backup
     autoload :Base,       File.join(STORAGE_PATH, 'base')
     autoload :Cycler,     File.join(STORAGE_PATH, 'cycler')
     autoload :S3,         File.join(STORAGE_PATH, 's3')
-    autoload :CloudFiles, File.join(STORAGE_PATH, 'cloudfiles')
+    autoload :CloudFiles, File.join(STORAGE_PATH, 'cloud_files')
     autoload :Ninefold,   File.join(STORAGE_PATH, 'ninefold')
     autoload :Dropbox,    File.join(STORAGE_PATH, 'dropbox')
     autoload :FTP,        File.join(STORAGE_PATH, 'ftp')
@@ -49,6 +56,7 @@ module Backup
     autoload :Base, File.join(SYNCER_PATH, 'base')
     module Cloud
       autoload :Base,       File.join(SYNCER_PATH, 'cloud', 'base')
+      autoload :LocalFile,  File.join(SYNCER_PATH, 'cloud', 'local_file')
       autoload :CloudFiles, File.join(SYNCER_PATH, 'cloud', 'cloud_files')
       autoload :S3,         File.join(SYNCER_PATH, 'cloud', 's3')
     end
@@ -78,8 +86,6 @@ module Backup
     autoload :Gzip,   File.join(COMPRESSOR_PATH, 'gzip')
     autoload :Bzip2,  File.join(COMPRESSOR_PATH, 'bzip2')
     autoload :Custom, File.join(COMPRESSOR_PATH, 'custom')
-    autoload :Pbzip2, File.join(COMPRESSOR_PATH, 'pbzip2')
-    autoload :Lzma,   File.join(COMPRESSOR_PATH, 'lzma')
   end
 
   ##
@@ -100,21 +106,22 @@ module Backup
     autoload :Prowl,     File.join(NOTIFIER_PATH, 'prowl')
     autoload :Hipchat,   File.join(NOTIFIER_PATH, 'hipchat')
     autoload :Pushover,  File.join(NOTIFIER_PATH, 'pushover')
+    autoload :HttpPost,  File.join(NOTIFIER_PATH, 'http_post')
+    autoload :Nagios,    File.join(NOTIFIER_PATH, 'nagios')
   end
 
   ##
   # Require Backup base files
   %w{
+    errors
+    logger
     utilities
     archive
     binder
     cleaner
+    model
     config
     cli
-    configuration
-    errors
-    logger
-    model
     package
     packager
     pipeline

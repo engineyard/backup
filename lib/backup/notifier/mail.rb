@@ -66,14 +66,14 @@ module Backup
       ##
       # Set the method of encryption to be used for the +SMTP+ connection.
       #
-      # [:none (default)]
-      #   No encryption will be used.
-      #
-      # [:starttls]
+      # [:starttls (default)]
       #   Use +STARTTLS+ to upgrade the connection to a +SSL/TLS+ connection.
       #
       # [:tls or :ssl]
       #   Use a +SSL/TLS+ connection.
+      #
+      # [:none]
+      #   No encryption will be used.
       attr_accessor :encryption
 
       ##
@@ -123,6 +123,7 @@ module Backup
         instance_eval(&block) if block_given?
 
         @send_log_on ||= [:warning, :failure]
+        @encryption  ||= :starttls
       end
 
       private
@@ -218,25 +219,20 @@ module Backup
         email
       end
 
-      attr_deprecate :enable_starttls_auto, :version => '3.2.0',
-                     :message => "Use #encryption instead.\n" +
-                        'e.g. mail.encryption = :starttls',
-                     :action => lambda {|klass, val|
-                       klass.encryption = val ? :starttls : :none
-                     }
+    end
+  end
+end
 
-      attr_deprecate :sendmail, :version => '3.6.0',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { sendmail val }
-          }
-
-      attr_deprecate :exim, :version => '3.6.0',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { exim val }
-          }
-
+# Patch mail v2.5.4 Exim delivery method
+# https://github.com/meskyanichi/backup/issues/446
+# https://github.com/mikel/mail/pull/546
+module Mail
+  class Exim
+    def self.call(path, arguments, destinations, encoded_message)
+      popen "#{path} #{arguments}" do |io|
+        io.puts encoded_message.to_lf
+        io.flush
+      end
     end
   end
 end

@@ -2,14 +2,17 @@
 
 module Backup
   module Utilities
+    class Error < Backup::Error; end
+
     UTILITY = {}
     NAMES = %w{
-      tar cat split find xargs sudo chown
-      gzip bzip2 lzma pbzip2
+      tar cat split sudo chown hostname
+      gzip bzip2
       mongo mongodump mysqldump pg_dump pg_dumpall redis-cli riak-admin
       gpg openssl
       rsync ssh
       sendmail exim
+      send_nsca
     }
 
     module DSL
@@ -23,7 +26,7 @@ module Backup
           define_method name.gsub('-', '_'), lambda {|val|
             path = File.expand_path(val)
             unless File.executable?(path)
-              raise Errors::Utilities::NotFoundError, <<-EOS
+              raise Utilities::Error, <<-EOS
                 The path given for '#{ name }' was not found or not executable.
                 Path was: #{ path }
               EOS
@@ -58,20 +61,17 @@ module Backup
       #
       #   Backup::Utilities.configure do
       #     # General Utilites
-      #     tar   '/path/to/tar'
+      #     tar      '/path/to/tar'
       #     tar_dist :gnu   # or :bsd
-      #     cat   '/path/to/cat'
-      #     split '/path/to/split'
-      #     find  '/path/to/find'
-      #     xargs '/path/to/xargs'
-      #     sudo  '/path/to/sudo'
-      #     chown '/path/to/chown'
+      #     cat      '/path/to/cat'
+      #     split    '/path/to/split'
+      #     sudo     '/path/to/sudo'
+      #     chown    '/path/to/chown'
+      #     hostname '/path/to/hostname'
       #
       #     # Compressors
       #     gzip    '/path/to/gzip'
       #     bzip2   '/path/to/bzip2'
-      #     lzma    '/path/to/lzma'   # deprecated. use a Custom Compressor
-      #     pbzip2  '/path/to/pbzip2' # deprecated. use a Custom Compressor
       #
       #     # Database Utilities
       #     mongo       '/path/to/mongo'
@@ -93,21 +93,11 @@ module Backup
       #     # Notifiers
       #     sendmail  '/path/to/sendmail'
       #     exim      '/path/to/exim'
+      #     send_nsca '/path/to/send_nsca'
       #   end
       #
       # These paths may be set using absolute paths, or relative to the
       # working directory when Backup is run.
-      #
-      # Note that many of Backup's components currently have their own
-      # configuration settings for utility paths. For instance, when configuring
-      # a +MySQL+ database backup, +mysqldump_utility+ may be used:
-      #
-      #   database MySQL do |db|
-      #     db.mysqldump_utility = '/path/to/mysqldump'
-      #   end
-      #
-      # Use of these configuration settings will override the path set here.
-      # (The use of these may be deprecated in the future)
       def configure(&block)
         DSL.instance_eval(&block)
       end
@@ -129,11 +119,10 @@ module Backup
       # Raises an error if utility can not be found in the system's $PATH
       def utility(name)
         name = name.to_s.strip
-        raise Errors::Utilities::NotFoundError,
-            'Utility Name Empty' if name.empty?
+        raise Error, 'Utility Name Empty' if name.empty?
 
         UTILITY[name] ||= %x[which '#{ name }' 2>/dev/null].chomp
-        raise(Errors::Utilities::NotFoundError, <<-EOS) if UTILITY[name].empty?
+        raise Error, <<-EOS if UTILITY[name].empty?
           Could not locate '#{ name }'.
           Make sure the specified utility is installed
           and available in your system's $PATH, or specify it's location
@@ -181,19 +170,12 @@ module Backup
 
         begin
           out, err = '', ''
-          # popen4 doesn't work in 1.8.7 with stock versions of ruby shipped
-          # with major OSs. Hack to make it stop segfaulting.
-          # See: https://github.com/engineyard/engineyard/issues/115
-          GC.disable if RUBY_VERSION < '1.9'
           ps = Open4.popen4(command) do |pid, stdin, stdout, stderr|
             stdin.close
             out, err = stdout.read.strip, stderr.read.strip
           end
         rescue Exception => e
-          raise Errors::Utilities::SystemCallError.wrap(
-              e, "Failed to execute '#{ name }'")
-        ensure
-          GC.enable if RUBY_VERSION < '1.9'
+          raise Error.wrap(e, "Failed to execute '#{ name }'")
         end
 
         if ps.success?
@@ -211,7 +193,7 @@ module Backup
 
           return out
         else
-          raise Errors::Utilities::SystemCallError, <<-EOS
+          raise Error, <<-EOS
             '#{ name }' failed with exit status: #{ ps.exitstatus }
             STDOUT Messages: #{ out.empty? ? 'None' : "\n#{ out }" }
             STDERR Messages: #{ err.empty? ? 'None' : "\n#{ err }" }

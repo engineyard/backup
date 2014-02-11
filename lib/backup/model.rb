@@ -2,6 +2,9 @@
 
 module Backup
   class Model
+    class Error < Backup::Error; end
+    class FatalError < Backup::FatalError; end
+
     class << self
       ##
       # The Backup::Model.all class method keeps track of all the models
@@ -21,6 +24,18 @@ module Backup
         else
           all.select {|model| trigger == model.trigger }
         end
+      end
+
+      # Allows users to create preconfigured models.
+      def preconfigure(&block)
+        @preconfigure ||= block
+      end
+
+      private
+
+      # used for testing
+      def reset!
+        @all = @preconfigure = nil
       end
     end
 
@@ -108,6 +123,7 @@ module Backup
       @notifiers  = []
       @syncers    = []
 
+      instance_eval(&self.class.preconfigure) if self.class.preconfigure
       instance_eval(&block) if block_given?
 
       # trigger all defined databases to generate their #dump_filename
@@ -140,27 +156,6 @@ module Backup
     ##
     # Adds an Syncer. Multiple Syncers may be added to the model.
     def sync_with(name, syncer_id = nil, &block)
-      ##
-      # Warn user of DSL changes
-      case name.to_s
-      when 'Backup::Config::RSync'
-        Logger.warn Errors::ConfigError.new(<<-EOS)
-          Configuration Update Needed for Syncer::RSync
-          The RSync Syncer has been split into three separate modules:
-          RSync::Local, RSync::Push and RSync::Pull
-          Please update your configuration.
-          i.e. 'sync_with RSync' is now 'sync_with RSync::Push'
-        EOS
-        name = 'RSync::Push'
-      when /(Backup::Config::S3|Backup::Config::CloudFiles)/
-        syncer = $1.split('::')[2]
-        Logger.warn Errors::ConfigError.new(<<-EOS)
-          Configuration Update Needed for '#{ syncer }' Syncer.
-          This Syncer is now referenced as Cloud::#{ syncer }
-          i.e. 'sync_with #{ syncer }' is now 'sync_with Cloud::#{ syncer }'
-        EOS
-        name = "Cloud::#{ syncer }"
-      end
       @syncers << get_class_from_scope(Syncer, name).new(syncer_id, &block)
     end
 
@@ -186,15 +181,19 @@ module Backup
     end
 
     ##
-    # Adds a Splitter with the given +chunk_size+ in MB.
-    # This will split the final backup package into multiple files.
-    def split_into_chunks_of(chunk_size)
-      if chunk_size.is_a?(Integer)
-        @splitter = Splitter.new(self, chunk_size)
+    # Adds a Splitter to split the final backup package into multiple files.
+    #
+    # +chunk_size+ is specified in MiB and must be given as an Integer.
+    # +suffix_length+ controls the number of characters used in the suffix
+    # (and the maximum number of chunks possible).
+    # ie. 1 (-a, -b), 2 (-aa, -ab), 3 (-aaa, -aab)
+    def split_into_chunks_of(chunk_size, suffix_length = 3)
+      if chunk_size.is_a?(Integer) && suffix_length.is_a?(Integer)
+        @splitter = Splitter.new(self, chunk_size, suffix_length)
       else
-        raise Errors::Model::ConfigurationError, <<-EOS
-          Invalid Chunk Size for Splitter
-          Argument to #split_into_chunks_of() must be an Integer
+        raise Error, <<-EOS
+          Invalid arguments for #split_into_chunks_of()
+          +chunk_size+ (and optional +suffix_length+) must be Integers.
         EOS
       end
     end
@@ -211,7 +210,8 @@ module Backup
     #
     # If any exception is raised, any defined +after+ hook will be skipped.
     def before(&block)
-      @before ||= block
+      @before = block if block
+      @before
     end
 
     ##
@@ -238,7 +238,8 @@ module Backup
     # the exit_status will be elevated to 2. If the exception is not a
     # StandardError, the exit_status will be elevated to 3.
     def after(&block)
-      @after ||= block
+      @after = block if block
+      @after
     end
 
     ##
@@ -270,14 +271,20 @@ module Backup
 
       syncers.each(&:perform!)
 
+    rescue Interrupt
+      @interrupted = true
+      raise
+
     rescue Exception => err
       @exception = err
 
     ensure
-      set_exit_status
-      @finished_at = Time.now.utc
-      log!(:finished)
-      after_hook
+      unless @interrupted
+        set_exit_status
+        @finished_at = Time.now.utc
+        log!(:finished)
+        after_hook
+      end
     end
 
     ##
@@ -330,7 +337,7 @@ module Backup
     # +name+ may be Class/Module or String representation
     # of any namespace which exists under +scope+.
     #
-    # The 'Backup::Config::' namespace is stripped from +name+,
+    # The 'Backup::Config::DSL' namespace is stripped from +name+,
     # since this is the namespace where we define module namespaces
     # for use with Model's DSL methods.
     #
@@ -343,7 +350,7 @@ module Backup
     #
     def get_class_from_scope(scope, name)
       klass = scope
-      name = name.to_s.sub(/^Backup::Config::/, '')
+      name = name.to_s.sub(/^Backup::Config::DSL::/, '')
       name.split('::').each do |chunk|
         klass = klass.const_get(chunk)
       end
@@ -375,8 +382,7 @@ module Backup
 
     rescue Exception => err
       @before_hook_failed = true
-      ex = err.is_a?(StandardError) ?
-          Errors::Model::HookError : Errors::Model::HookFatalError
+      ex = err.is_a?(StandardError) ? Error : FatalError
       raise ex.wrap(err, 'Before Hook Failed!')
     end
 
@@ -395,7 +401,7 @@ module Backup
 
     rescue Exception => err
       fatal = !err.is_a?(StandardError)
-      ex = fatal ? Errors::Model::HookFatalError : Errors::Model::HookError
+      ex = fatal ? FatalError : Error
       Logger.error ex.wrap(err, 'After Hook Failed!')
       # upgrade exit_status if needed
       (@exit_status = fatal ? 3 : 2) unless exit_status == 3
@@ -414,7 +420,7 @@ module Backup
 
       when :finished
         if exit_status > 1
-          ex = exit_status == 2 ? Errors::ModelError : Errors::ModelFatalError
+          ex = exit_status == 2 ? Error : FatalError
           err = ex.wrap(exception, "Backup for #{ label } (#{ trigger }) Failed!")
           Logger.error err
           Logger.error "\nBacktrace:\n\s\s" + err.backtrace.join("\n\s\s") + "\n\n"

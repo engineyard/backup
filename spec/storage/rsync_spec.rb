@@ -15,10 +15,8 @@ describe Storage::RSync do
         stubs(:utility).with(:ssh).returns('ssh')
   end
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
-  it_behaves_like 'a subclass of Storage::Base' do
-    let(:cycling_supported) { false }
-  end
+  it_behaves_like 'a class that includes Config::Helpers'
+  it_behaves_like 'a subclass of Storage::Base'
 
   describe '#initialize' do
 
@@ -107,14 +105,10 @@ describe Storage::RSync do
         Tempfile.expects(:new).never
 
         # create_remote_path
-        FileUtils.expects(:mkdir_p).with(
-          File.join(File.expand_path('~/backups'), 'test_trigger')
-        )
+        FileUtils.expects(:mkdir_p).with(File.expand_path('~/backups'))
 
         # First Package File
-        dest = File.join(
-          File.expand_path('~/backups'), 'test_trigger', 'test_trigger.tar-aa'
-        )
+        dest = File.join(File.expand_path('~/backups'), 'test_trigger.tar-aa')
         Logger.expects(:info).in_sequence(s).with(
           "Syncing to '#{ dest }'..."
         )
@@ -123,9 +117,7 @@ describe Storage::RSync do
         )
 
         # Second Package File
-        dest = File.join(
-          File.expand_path('~/backups'), 'test_trigger', 'test_trigger.tar-ab'
-        )
+        dest = File.join(File.expand_path('~/backups'), 'test_trigger.tar-ab')
         Logger.expects(:info).in_sequence(s).with(
           "Syncing to '#{ dest }'..."
         )
@@ -146,10 +138,10 @@ describe Storage::RSync do
         Tempfile.expects(:new).never
 
         # create_remote_path
-        FileUtils.expects(:mkdir_p).with('/my/backups/test_trigger')
+        FileUtils.expects(:mkdir_p).with('/my/backups')
 
         # First Package File
-        dest = '/my/backups/test_trigger/test_trigger.tar-aa'
+        dest = '/my/backups/test_trigger.tar-aa'
         Logger.expects(:info).in_sequence(s).with(
           "Syncing to '#{ dest }'..."
         )
@@ -158,7 +150,7 @@ describe Storage::RSync do
         )
 
         # Second Package File
-        dest = '/my/backups/test_trigger/test_trigger.tar-ab'
+        dest = '/my/backups/test_trigger.tar-ab'
         Logger.expects(:info).in_sequence(s).with(
           "Syncing to '#{ dest }'..."
         )
@@ -181,17 +173,17 @@ describe Storage::RSync do
 
         # create_remote_path
         storage.expects(:run).in_sequence(s).with(
-          %q[ssh -p 22 host.name "mkdir -p 'backups/test_trigger'"]
+          %q[ssh -p 22 host.name "mkdir -p 'backups'"]
         )
 
         # First Package File
-        dest = "host.name:'backups/test_trigger/test_trigger.tar-aa'"
+        dest = "host.name:'backups/test_trigger.tar-aa'"
         storage.expects(:run).in_sequence(s).with(
           %Q[rsync --archive -e "ssh -p 22" '#{ package_files[0] }' #{ dest }]
         )
 
         # Second Package File
-        dest = "host.name:'backups/test_trigger/test_trigger.tar-ab'"
+        dest = "host.name:'backups/test_trigger.tar-ab'"
         storage.expects(:run).in_sequence(s).with(
           %Q[rsync --archive -e "ssh -p 22" '#{ package_files[1] }' #{ dest }]
         )
@@ -215,11 +207,11 @@ describe Storage::RSync do
         # create_remote_path
         storage.expects(:run).in_sequence(s).with(
           "ssh -p 123 -l ssh_username -i '/my/id_rsa' " +
-          %q[host.name "mkdir -p 'backups/test_trigger'"]
+          %q[host.name "mkdir -p 'backups'"]
         )
 
         # First Package File
-        dest = "host.name:'backups/test_trigger/test_trigger.tar-aa'"
+        dest = "host.name:'backups/test_trigger.tar-aa'"
         storage.expects(:run).in_sequence(s).with(
           "rsync --archive --opt1 --compress " +
           %Q[-e "ssh -p 123 -l ssh_username -i '/my/id_rsa'" ] +
@@ -227,7 +219,7 @@ describe Storage::RSync do
         )
 
         # Second Package File
-        dest = "host.name:'backups/test_trigger/test_trigger.tar-ab'"
+        dest = "host.name:'backups/test_trigger.tar-ab'"
         storage.expects(:run).in_sequence(s).with(
           "rsync --archive --opt1 --compress " +
           %Q[-e "ssh -p 123 -l ssh_username -i '/my/id_rsa'" ] +
@@ -528,134 +520,5 @@ describe Storage::RSync do
 
   end # describe '#perform!'
 
-  describe 'deprecations' do
-
-    describe '#local' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /If 'host' is not set, the operation will be local/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns setting is no longer needed' do
-          Storage::RSync.new(model) do |s|
-            s.local = true
-          end
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Storage::RSync.clear_defaults! }
-
-        it 'warns setting is no longer needed' do
-          Storage::RSync.defaults do |s|
-            s.local = true
-          end
-          Storage::RSync.new(model)
-        end
-      end
-    end # describe '#additional_options'
-
-    describe '#username' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #ssh_user instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          storage = Storage::RSync.new(model) do |s|
-            s.username = 'user_name'
-          end
-          expect( storage.ssh_user ).to eq 'user_name'
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Storage::RSync.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Storage::RSync.defaults do |s|
-            s.username = 'default_user'
-          end
-          storage = Storage::RSync.new(model)
-          expect( storage.ssh_user ).to eq 'default_user'
-        end
-      end
-    end # describe '#username'
-
-    describe '#password' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #rsync_password instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          storage = Storage::RSync.new(model) do |s|
-            s.password = 'secret'
-          end
-          expect( storage.rsync_password ).to eq 'secret'
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Storage::RSync.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Storage::RSync.defaults do |s|
-            s.password = 'default_secret'
-          end
-          storage = Storage::RSync.new(model)
-          expect( storage.rsync_password ).to eq 'default_secret'
-        end
-      end
-    end # describe '#password'
-
-    describe '#ip' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #host instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          storage = Storage::RSync.new(model) do |s|
-            s.ip = 'hostname'
-          end
-          expect( storage.host ).to eq 'hostname'
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Storage::RSync.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Storage::RSync.defaults do |s|
-            s.ip = 'hostname'
-          end
-          storage = Storage::RSync.new(model)
-          expect( storage.host ).to eq 'hostname'
-        end
-      end
-    end # describe '#ip'
-
-  end # describe 'deprecations'
 end
 end

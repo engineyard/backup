@@ -13,27 +13,28 @@ source 'https://geminst:943662ea7d0fad349eeae9f69adb521d@nextgem.engineyard.com/
 # Whenever Gemfile.lock is updated, `rake gemspec` must be run to sync
 # backup.gemspec with Gemfile.lock. All gems in the :production group
 # (and their dependencies) will be added to backup.gemspec.
+#
+# Note that due to this, backup itself is not part of the bundle.
+# If you need to run backup from the project root, use:
+# $ ruby -rbundler/setup -Ilib ./bin/backup
 ##
 
 # Specify version requirements to control `bundle update` if needed.
 group :production do
   gem 'thor'
   gem 'open4'
-  # waiting until this is resolved:
-  # https://github.com/fog/fog/commit/f6d361b2e2e#L46R201
-  # https://github.com/fog/fog/pull/1815
-  gem 'fog', '= 1.10.1'
-  gem 'excon'
+  gem 'fog'
+  # gem 'excon' - use version specified by fog
+  gem 'unf' # for fog/AWS
   gem 'dropbox-sdk', '= 1.5.1' # patched
   gem 'net-ssh'
   gem 'net-scp'
   gem 'net-sftp'
-  gem 'parallel'
-  gem 'mail'
+  gem 'mail', '= 2.5.4' # patched
   gem 'twitter'
   gem 'hipchat'
   gem 'json'
-  gem 'ey-core', '~> 0.2.4'
+  gem 'ey-core'
 end
 
 group :development, :test do
@@ -42,6 +43,7 @@ group :development, :test do
 end
 
 gem 'rspec'
+gem 'fuubar'
 gem 'mocha'
 gem 'timecop'
 
@@ -49,12 +51,11 @@ gem 'timecop'
 group :no_ci do
   gem 'guard'
   gem 'guard-rspec'
-  gem 'fuubar'
 
   gem 'rb-fsevent' # Mac OS X
   gem 'rb-inotify' # Linux
 
   gem 'yard'
   gem 'redcarpet'
+  # gem 'rake' - this will interfere with `rake gemspec`
 end
-

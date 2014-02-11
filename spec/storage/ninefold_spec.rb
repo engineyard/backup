@@ -8,10 +8,9 @@ describe Storage::Ninefold do
   let(:storage) { Storage::Ninefold.new(model) }
   let(:s) { sequence '' }
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
-  it_behaves_like 'a subclass of Storage::Base' do
-    let(:cycling_supported) { true }
-  end
+  it_behaves_like 'a class that includes Config::Helpers'
+  it_behaves_like 'a subclass of Storage::Base'
+  it_behaves_like 'a storage that cycles'
 
   describe '#initialize' do
     it 'provides default values' do
@@ -223,9 +222,9 @@ describe Storage::Ninefold do
 
       expect do
         storage.send(:remove!, package)
-      end.to raise_error(Errors::Storage::Ninefold::NotFoundError) {|err|
+      end.to raise_error(Storage::Ninefold::Error) {|err|
         expect( err.message ).to eq(
-          'Storage::Ninefold::NotFoundError: ' +
+          'Storage::Ninefold::Error: ' +
           "Directory at '#{ remote_path }' not found"
         )
       }

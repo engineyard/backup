@@ -3,7 +3,7 @@
 module Backup
   module Storage
     class RSync < Base
-      include Backup::Utilities::Helpers
+      include Utilities::Helpers
 
       ##
       # Mode of operation
@@ -120,21 +120,15 @@ module Backup
       # into. For `:ssh_daemon` or `:rsync_daemon` modes, this would reference
       # an rsync module/path.
       #
-      # In :ssh_daemon and :rsync_daemon modes, the files will be stored
-      # directly to the +path+ given. The path (or path defined by your rsync
-      # module) must already exist.
-      # Note that no additional `<trigger>` directory will be added to this path.
+      # In :ssh_daemon and :rsync_daemon modes, +path+ (or path defined by
+      # your rsync module) must already exist.
       #
-      # In :ssh mode or local operation (no +host+ specified), the actual
-      # destination path will be `<path>/<trigger>/`. This path will be created
-      # if needed - either locally, or on the remote for :ssh mode.
-      # This behavior will change in v4.0, when :ssh mode and local operations
-      # will also store the files directly in the +path+ given.
+      # In :ssh mode or local operation (no +host+ specified), +path+ will
+      # be created if needed - either locally, or on the remote for :ssh mode.
       attr_accessor :path
 
-      def initialize(model, storage_id = nil, &block)
+      def initialize(model, storage_id = nil)
         super
-        instance_eval(&block) if block_given?
 
         @mode ||= :ssh
         @port ||= mode == :rsync_daemon ? 873 : 22
@@ -158,27 +152,16 @@ module Backup
         remove_password_file
       end
 
-      # Storage::RSync doesn't cycle
-      def cycle!; end
-
       ##
       # Other storages add an additional timestamp directory to this path.
       # This is not desired here, since we need to transfer the package files
       # to the same location each time.
-      #
-      # Note: In v4.0, the additional trigger directory will to be dropped
-      # from remote_path for both local and :ssh mode, so the package files
-      # will be stored directly in #path.
       def remote_path
         @remote_path ||= begin
           if host
-            if mode == :ssh
-              File.join(path.sub(/^~\//, ''), package.trigger)
-            else
-              path.sub(/^~\//, '').sub(/\/$/, '')
-            end
+            path.sub(/^~\//, '').sub(/\/$/, '')
           else
-            File.join(File.expand_path(path), package.trigger)
+            File.expand_path(path)
           end
         end
       end
@@ -260,24 +243,6 @@ module Backup
         @password_file.delete if @password_file
       end
 
-      attr_deprecate :local, :version => '3.2.0',
-                     :message => "If 'host' is not set, the operation will be local."
-
-      attr_deprecate :username, :version => '3.2.0',
-                     :message => 'Use #ssh_user instead.',
-                     :action => lambda {|klass, val|
-                       klass.ssh_user = val
-                     }
-      attr_deprecate :password, :version => '3.2.0',
-                     :message => 'Use #rsync_password instead.',
-                     :action => lambda {|klass, val|
-                       klass.rsync_password = val
-                     }
-      attr_deprecate :ip, :version => '3.2.0',
-                     :message => 'Use #host instead.',
-                     :action => lambda {|klass, val|
-                       klass.host = val
-                     }
     end
   end
 end

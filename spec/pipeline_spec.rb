@@ -173,8 +173,12 @@ describe 'Backup::Pipeline' do
       it 'should raise an error' do
         expect do
           pipeline.run
-        end.to raise_error(Backup::Errors::Pipeline::ExecutionError) {|err|
-          err.message.should match('RuntimeError: exec failed')
+        end.to raise_error(Backup::Pipeline::Error) {|err|
+          err.message.should eq(
+            "Pipeline::Error: Pipeline failed to execute\n" +
+            "--- Wrapped Exception ---\n" +
+            "RuntimeError: exec failed"
+          )
         }
       end
     end # context 'when pipeline command fails to execute'
@@ -207,27 +211,31 @@ describe 'Backup::Pipeline' do
 
     context 'when #stderr_messages has messages' do
       before do
-        pipeline.expects(:stderr_messages).returns('stderr messages')
+        pipeline.expects(:stderr_messages).returns("stderr messages\n")
       end
 
       it 'should output #stderr_messages and formatted system error messages' do
-        pipeline.error_messages.should == 'stderr messages' +
-          "The following system errors were returned:\n" +
-          "#{ sys_err }: Success - first error\n" +
-          "#{ sys_err }: Success - second error"
+        pipeline.error_messages.should match(/
+          stderr\smessages\n
+          The\sfollowing\ssystem\serrors\swere\sreturned:\n
+          #{ sys_err }:\s(.*?)\sfirst\serror\n
+          #{ sys_err }:\s(.*?)\ssecond\serror
+        /x)
       end
     end
 
     context 'when #stderr_messages has no messages' do
       before do
-        pipeline.expects(:stderr_messages).returns(false)
+        pipeline.expects(:stderr_messages).returns("stderr messages\n")
       end
 
       it 'should only output the formatted system error messages' do
-        pipeline.error_messages.should ==
-          "The following system errors were returned:\n" +
-          "#{ sys_err }: Success - first error\n" +
-          "#{ sys_err }: Success - second error"
+        pipeline.error_messages.should match(/
+          stderr\smessages\n
+          The\sfollowing\ssystem\serrors\swere\sreturned:\n
+          #{ sys_err }:\s(.*?)\sfirst\serror\n
+          #{ sys_err }:\s(.*?)\ssecond\serror
+        /x)
       end
     end
   end # describe '#error_messages'

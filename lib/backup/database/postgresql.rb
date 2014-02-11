@@ -3,6 +3,7 @@
 module Backup
   module Database
     class PostgreSQL < Base
+      class Error < Backup::Error; end
 
       ##
       # Name of the database that needs to get dumped.
@@ -13,6 +14,10 @@ module Backup
       ##
       # Credentials for the specified database
       attr_accessor :username, :password
+
+      ##
+      # If set the pg_dump(all) command is executed as the given user
+      attr_accessor :sudo_user
 
       ##
       # Connectivity options
@@ -64,25 +69,30 @@ module Backup
         if pipeline.success?
           log!(:finished)
         else
-          raise Errors::Database::PipelineError,
-              "#{ database_name } Dump Failed!\n" + pipeline.error_messages
+          raise Error, "Dump Failed!\n" + pipeline.error_messages
         end
       end
 
       def pgdump
         "#{ password_option }" +
+        "#{ sudo_option }" +
         "#{ utility(:pg_dump) } #{ username_option } #{ connectivity_options } " +
         "#{ user_options } #{ tables_to_dump } #{ tables_to_skip } #{ name }"
       end
 
       def pgdumpall
         "#{ password_option }" +
+        "#{ sudo_option }" +
         "#{ utility(:pg_dumpall) } #{ username_option } " +
         "#{ connectivity_options } #{ user_options }"
       end
 
       def password_option
         "PGPASSWORD='#{ password }' " if password
+      end
+
+      def sudo_option
+        "#{ utility(:sudo) } -n -u #{ sudo_user } " if sudo_user
       end
 
       def username_option
@@ -117,18 +127,6 @@ module Backup
       def dump_all?
         name == :all
       end
-
-      attr_deprecate :utility_path, :version => '3.0.21',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { pg_dump val }
-          }
-
-      attr_deprecate :pg_dump_utility, :version => '3.3.0',
-          :message => 'Use Backup::Utilities.configure instead.',
-          :action => lambda {|klass, val|
-            Utilities.configure { pg_dump val }
-          }
 
     end
   end

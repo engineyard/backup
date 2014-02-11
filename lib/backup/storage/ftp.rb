@@ -4,6 +4,7 @@ require 'net/ftp'
 module Backup
   module Storage
     class FTP < Base
+      include Storage::Cycler
 
       ##
       # Server credentials
@@ -17,9 +18,8 @@ module Backup
       # use passive mode?
       attr_accessor :passive_mode
 
-      def initialize(model, storage_id = nil, &block)
+      def initialize(model, storage_id = nil)
         super
-        instance_eval(&block) if block_given?
 
         @port         ||= 21
         @path         ||= 'backups'

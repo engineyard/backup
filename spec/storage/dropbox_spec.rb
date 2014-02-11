@@ -8,10 +8,9 @@ describe Storage::Dropbox do
   let(:storage) { Storage::Dropbox.new(model) }
   let(:s) { sequence '' }
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
-  it_behaves_like 'a subclass of Storage::Base' do
-    let(:cycling_supported) { true }
-  end
+  it_behaves_like 'a class that includes Config::Helpers'
+  it_behaves_like 'a subclass of Storage::Base'
+  it_behaves_like 'a storage that cycles'
 
   describe '#initialize' do
     it 'provides default values' do
@@ -19,8 +18,9 @@ describe Storage::Dropbox do
       expect( storage.keep          ).to be_nil
       expect( storage.api_key       ).to be_nil
       expect( storage.api_secret    ).to be_nil
+      expect( storage.cache_path    ).to eq '.cache'
       expect( storage.chunk_size    ).to be 4
-      expect( storage.chunk_retries ).to be 10
+      expect( storage.max_retries   ).to be 10
       expect( storage.retry_waitsec ).to be 30
       expect( storage.path          ).to eq 'backups'
     end
@@ -30,8 +30,9 @@ describe Storage::Dropbox do
         db.keep           = 2
         db.api_key        = 'my_api_key'
         db.api_secret     = 'my_api_secret'
+        db.cache_path     = '.my_cache'
         db.chunk_size     = 10
-        db.chunk_retries  = 15
+        db.max_retries    = 15
         db.retry_waitsec  = 45
         db.path           = 'my/path'
       end
@@ -40,8 +41,9 @@ describe Storage::Dropbox do
       expect( storage.keep          ).to be 2
       expect( storage.api_key       ).to eq 'my_api_key'
       expect( storage.api_secret    ).to eq 'my_api_secret'
+      expect( storage.cache_path    ).to eq '.my_cache'
       expect( storage.chunk_size    ).to eq 10
-      expect( storage.chunk_retries ).to eq 15
+      expect( storage.max_retries   ).to eq 15
       expect( storage.retry_waitsec ).to eq 45
       expect( storage.path          ).to eq 'my/path'
     end
@@ -101,8 +103,12 @@ describe Storage::Dropbox do
 
         expect do
           storage.send(:connection)
-        end.to raise_error(Errors::Storage::Dropbox::ConnectionError) {|err|
-          expect( err.message ).to match('RuntimeError: error')
+        end.to raise_error(Storage::Dropbox::Error) {|err|
+          expect( err.message ).to eq(
+            "Storage::Dropbox::Error: Authorization Failed\n" +
+            "--- Wrapped Exception ---\n" +
+            "RuntimeError: error"
+          )
         }
       end
     end
@@ -111,7 +117,7 @@ describe Storage::Dropbox do
 
   describe '#cached_session' do
     let(:session) { mock }
-    let(:cached_file) { File.join(Config.cache_path, 'my_api_keymy_api_secret') }
+    let(:cached_file) { storage.send(:cached_file) }
 
     before do
       storage.api_key = 'my_api_key'
@@ -139,7 +145,7 @@ describe Storage::Dropbox do
         DropboxSession.expects(:deserialize).with('yaml_data').
             raises('error message')
         Logger.expects(:warn).with do |err|
-          expect( err ).to be_an_instance_of(Errors::Storage::Dropbox::CacheError)
+          expect( err ).to be_an_instance_of(Storage::Dropbox::Error)
           expect( err.message ).to match(
             "Could not read session data from cache.\n" +
             "  Cache data might be corrupt."
@@ -208,7 +214,7 @@ describe Storage::Dropbox do
     end
 
     it 'retries on errors' do
-      storage.chunk_retries = 1
+      storage.max_retries = 1
       storage.package.stubs(:filenames).returns(['test_trigger.tar'])
 
       src = File.join(Config.tmp_path, 'test_trigger.tar')
@@ -221,15 +227,15 @@ describe Storage::Dropbox do
         when 1
           expect( arg ).to eq "Storing '#{ dest }'..."
         when 2
-          expect( arg ).to be_an_instance_of Errors::Storage::Dropbox::TransferError
+          expect( arg ).to be_an_instance_of Storage::Dropbox::Error
           expect( arg.message ).to match(
-            "Storage::Dropbox::TransferError: Retry #1 of 1."
+            "Storage::Dropbox::Error: Retry #1 of 1."
           )
           expect( arg.message ).to match('RuntimeError: chunk failed')
         when 3
-          expect( arg ).to be_an_instance_of Errors::Storage::Dropbox::TransferError
+          expect( arg ).to be_an_instance_of Storage::Dropbox::Error
           expect( arg.message ).to match(
-            "Storage::Dropbox::TransferError: Retry #1 of 1."
+            "Storage::Dropbox::Error: Retry #1 of 1."
           )
           expect( arg.message ).to match('RuntimeError: finish failed')
         end
@@ -255,7 +261,7 @@ describe Storage::Dropbox do
     end
 
     it 'fails when retries are exceeded' do
-      storage.chunk_retries = 2
+      storage.max_retries = 2
       storage.package.stubs(:filenames).returns(['test_trigger.tar'])
 
       src = File.join(Config.tmp_path, 'test_trigger.tar')
@@ -268,15 +274,15 @@ describe Storage::Dropbox do
         when 1
           expect( arg ).to eq "Storing '#{ dest }'..."
         when 2
-          expect( arg ).to be_an_instance_of Errors::Storage::Dropbox::TransferError
+          expect( arg ).to be_an_instance_of Storage::Dropbox::Error
           expect( arg.message ).to match(
-            "Storage::Dropbox::TransferError: Retry #1 of 2."
+            "Storage::Dropbox::Error: Retry #1 of 2."
           )
           expect( arg.message ).to match('RuntimeError: chunk failed')
         when 3
-          expect( arg ).to be_an_instance_of Errors::Storage::Dropbox::TransferError
+          expect( arg ).to be_an_instance_of Storage::Dropbox::Error
           expect( arg.message ).to match(
-            "Storage::Dropbox::TransferError: Retry #2 of 2."
+            "Storage::Dropbox::Error: Retry #2 of 2."
           )
           expect( arg.message ).to match('RuntimeError: chunk failed again')
         end
@@ -300,7 +306,7 @@ describe Storage::Dropbox do
 
       expect do
         storage.send(:transfer!)
-      end.to raise_error(Errors::Storage::Dropbox::TransferError) {|err|
+      end.to raise_error(Storage::Dropbox::Error) {|err|
         expect( err.message ).to match('Upload Failed!')
         expect( err.message ).to match('RuntimeError: strike three')
       }
@@ -338,9 +344,71 @@ describe Storage::Dropbox do
 
   end # describe '#remove!'
 
+  describe '#cached_file' do
+
+    before do
+      storage.api_key = 'my_api_key'
+      storage.api_secret = 'my_api_secret'
+    end
+
+    context 'with default root_path' do
+
+      specify 'using default cache_path' do
+        expect( storage.send(:cached_file) ).to eq(
+          File.join(Config.root_path, '.cache', 'my_api_keymy_api_secret')
+        )
+      end
+
+      specify 'using relative cache_path' do
+        storage.cache_path = '.my_cache'
+        expect( storage.send(:cached_file) ).to eq(
+          File.join(Config.root_path, '.my_cache', 'my_api_keymy_api_secret')
+        )
+      end
+
+      specify 'using absolute cache_path' do
+        storage.cache_path = '/my/.cache'
+        expect( storage.send(:cached_file) ).to eq(
+          '/my/.cache/my_api_keymy_api_secret'
+        )
+      end
+
+    end
+
+    context 'with custom root_path' do
+
+      before do
+        File.stubs(:directory? => true)
+        Config.send(:update, :root_path => '/my_root')
+      end
+
+      specify 'using default cache_path' do
+        expect( storage.send(:cached_file) ).to eq(
+          '/my_root/.cache/my_api_keymy_api_secret'
+        )
+      end
+
+      specify 'using relative cache_path' do
+        storage.cache_path = '.my_cache'
+        expect( storage.send(:cached_file) ).to eq(
+          '/my_root/.my_cache/my_api_keymy_api_secret'
+        )
+      end
+
+      specify 'using absolute cache_path' do
+        storage.cache_path = '/my/.cache'
+        expect( storage.send(:cached_file) ).to eq(
+          '/my/.cache/my_api_keymy_api_secret'
+        )
+      end
+
+    end
+
+  end # describe '#cached_file'
+
   describe '#write_cache!' do
     let(:session) { mock }
-    let(:cached_file) { File.join(Config.cache_path, 'my_api_keymy_api_secret') }
+    let(:cached_file) { storage.send(:cached_file) }
     let(:file) { mock }
 
     before do
@@ -350,7 +418,7 @@ describe Storage::Dropbox do
     end
 
     it 'should write a serialized session to file' do
-      FileUtils.expects(:mkdir_p).with(Config.cache_path)
+      FileUtils.expects(:mkdir_p).with(File.dirname(cached_file))
 
       File.expects(:open).with(cached_file, 'w').yields(file)
       file.expects(:write).with('serialized_data')
@@ -362,7 +430,7 @@ describe Storage::Dropbox do
   describe '#create_write_and_return_new_session!' do
     let(:session)   { mock }
     let(:template)  { mock }
-    let(:cached_file) { File.join(Config.cache_path, 'my_api_keymy_api_secret') }
+    let(:cached_file) { storage.send(:cached_file) }
 
     before do
       storage.api_key = 'my_api_key'
@@ -411,7 +479,7 @@ describe Storage::Dropbox do
 
         expect do
           storage.send(:create_write_and_return_new_session!)
-        end.to raise_error(Errors::Storage::Dropbox::AuthenticationError) {|err|
+        end.to raise_error(Storage::Dropbox::Error) {|err|
           expect( err.message ).to match(
             "Could not create or authenticate a new session"
           )
@@ -420,93 +488,6 @@ describe Storage::Dropbox do
       end
     end
   end # describe '#create_write_and_return_new_session!' do
-
-  describe 'deprecations' do
-    after do
-      Storage::Dropbox.clear_defaults!
-    end
-
-    describe '#email' do
-      before do
-        Logger.expects(:warn).with do |err|
-          expect( err.message ).to match(
-            "Dropbox#email has been deprecated as of backup v.3.0.17"
-          )
-        end
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning' do
-          Storage::Dropbox.new(model) do |storage|
-            storage.email = 'foo'
-          end
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning' do
-          Storage::Dropbox.defaults do |storage|
-            storage.email = 'foo'
-          end
-          Storage::Dropbox.new(model)
-        end
-      end
-    end
-
-    describe '#password' do
-      before do
-        Logger.expects(:warn).with do |err|
-          expect( err.message ).to match(
-            "Dropbox#password has been deprecated as of backup v.3.0.17"
-          )
-        end
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning' do
-          Storage::Dropbox.new(model) do |storage|
-            storage.password = 'foo'
-          end
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning' do
-          Storage::Dropbox.defaults do |storage|
-            storage.password = 'foo'
-          end
-          Storage::Dropbox.new(model)
-        end
-      end
-    end
-
-    describe '#timeout' do
-      before do
-        Logger.expects(:warn).with do |err|
-          expect( err.message ).to match(
-            "Dropbox#timeout has been deprecated as of backup v.3.0.21"
-          )
-        end
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning' do
-          Storage::Dropbox.new(model) do |storage|
-            storage.timeout = 'foo'
-          end
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning' do
-          Storage::Dropbox.defaults do |storage|
-            storage.timeout = 'foo'
-          end
-          Storage::Dropbox.new(model)
-        end
-      end
-    end
-  end # describe 'deprecations'
 
 end
 end

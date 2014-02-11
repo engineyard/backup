@@ -7,7 +7,10 @@ describe 'Backup::Model' do
   let(:s)     { sequence '' }
 
   before do
-    Backup::Model.all.clear
+    Backup::Model.send(:reset!)
+  end
+  after do
+    Backup::Model.send(:reset!)
   end
 
   describe '.all' do
@@ -57,6 +60,36 @@ describe 'Backup::Model' do
 
   end # describe '.find_by_trigger'
 
+  describe '.preconfigure' do
+
+    it 'returns preconfiguration block if set' do
+      block = Proc.new {}
+      Backup::Model.preconfigure.should be_nil
+      Backup::Model.preconfigure(&block)
+      Backup::Model.preconfigure.should be(block)
+    end
+
+    it 'stores preconfiguration for each subclass' do
+      klass_a, klass_b = Class.new(Backup::Model), Class.new(Backup::Model)
+      block_a, block_b = Proc.new {}, Proc.new{}
+      klass_a.preconfigure(&block_a)
+      klass_b.preconfigure(&block_b)
+      klass_a.preconfigure.should be(block_a)
+      klass_b.preconfigure.should be(block_b)
+    end
+  end
+
+  describe 'subclassing Model' do
+    specify 'custom model triggers can be found' do
+      klass = Class.new(Backup::Model)
+      model_a = klass.new(:model_a, 'Model A')
+      model_b = Backup::Model.new(:model_b, 'Mowel B')
+      model_c = klass.new(:model_c, 'Model C')
+      Backup::Model.all.should == [model_a, model_b, model_c]
+      Backup::Model.find_by_trigger(:model_c).first.should be(model_c)
+    end
+  end
+
   describe '#initialize' do
 
     it 'sets default values' do
@@ -88,11 +121,22 @@ describe 'Backup::Model' do
     end
 
     it 'should accept and instance_eval a block' do
-      block = lambda {|model| throw(:instance, model) }
-      caught = catch(:instance) do
-        Backup::Model.new('gotcha', '', &block)
+      before_block = Proc.new {}
+      block = Proc.new do
+        before(&before_block)
       end
-      caught.trigger.should == 'gotcha'
+      model = Backup::Model.new(:foo, '', &block)
+      model.before.should be(before_block)
+    end
+
+    it 'should instance_eval the preconfiguration block' do
+      model_config_block  = lambda {|model| throw(:block_called, :model_config) }
+      pre_config_block    = lambda {|model| throw(:block_called, :pre_config) }
+      caught = catch(:block_called) do
+        Backup::Model.preconfigure(&pre_config_block)
+        Backup::Model.new('foo', '', &model_config_block)
+      end
+      caught.should == :pre_config
     end
 
     it 'should add itself to Model.all' do
@@ -138,6 +182,17 @@ describe 'Backup::Model' do
           def initialize(arg1, arg2, &block)
             @arg1 = arg1
             @arg2 = arg2
+            instance_eval(&block) if block_given?
+          end
+        end
+      end
+      module ThreeArgs
+        class Base
+          attr_accessor :arg1, :arg2, :arg3, :block_arg
+          def initialize(arg1, arg2, arg3, &block)
+            @arg1 = arg1
+            @arg2 = arg2
+            @arg3 = arg3
             instance_eval(&block) if block_given?
           end
         end
@@ -242,42 +297,6 @@ describe 'Backup::Model' do
           model.syncers.first.should be_an_instance_of Fake::OneArg::Base
         end
       end
-
-      it 'should warn user of change from RSync to RSync::Push' do
-        Backup::Logger.expects(:warn).with do |err|
-          err.message.should match(
-            "'sync_with RSync' is now 'sync_with RSync::Push'"
-          )
-        end
-        model.expects(:get_class_from_scope).
-            with(Backup::Syncer, 'RSync::Push').
-            returns(stub(:new))
-        model.sync_with('Backup::Config::RSync')
-      end
-
-      it 'should warn user of change from S3 to Cloud::S3' do
-        Backup::Logger.expects(:warn).with do |err|
-          err.message.should match(
-            "'sync_with S3' is now 'sync_with Cloud::S3'"
-          )
-        end
-        model.expects(:get_class_from_scope).
-            with(Backup::Syncer, 'Cloud::S3').
-            returns(stub(:new))
-        model.sync_with('Backup::Config::S3')
-      end
-
-      it 'should warn user of change from CloudFiles to Cloud::CloudFiles' do
-        Backup::Logger.expects(:warn).with do |err|
-          err.message.should match(
-            "'sync_with CloudFiles' is now 'sync_with Cloud::CloudFiles'"
-          )
-        end
-        model.expects(:get_class_from_scope).
-            with(Backup::Syncer, 'Cloud::CloudFiles').
-            returns(stub(:new))
-        model.sync_with('Backup::Config::CloudFiles')
-      end
     end
 
     describe '#notify_by' do
@@ -338,20 +357,30 @@ describe 'Backup::Model' do
 
     describe '#split_into_chunks_of' do
       it 'should add a splitter' do
-        using_fake('Splitter', Fake::TwoArgs::Base) do
-          model.split_into_chunks_of(123)
-          model.splitter.should be_an_instance_of Fake::TwoArgs::Base
+        using_fake('Splitter', Fake::ThreeArgs::Base) do
+          model.split_into_chunks_of(123, 2)
+          model.splitter.should be_an_instance_of Fake::ThreeArgs::Base
           model.splitter.arg1.should be(model)
           model.splitter.arg2.should == 123
+          model.splitter.arg3.should == 2
         end
       end
 
       it 'should raise an error if chunk_size is not an Integer' do
         expect do
-          model.split_into_chunks_of('345')
+          model.split_into_chunks_of('345', 2)
         end.to raise_error {|err|
-          err.should be_an_instance_of Backup::Errors::Model::ConfigurationError
-          err.message.should match(/must be an Integer/)
+          err.should be_an_instance_of Backup::Model::Error
+          err.message.should match(/must be Integers/)
+        }
+      end
+
+      it 'should raise an error if suffix_size is not an Integer' do
+        expect do
+          model.split_into_chunks_of(345, '2')
+        end.to raise_error {|err|
+          err.should be_an_instance_of Backup::Model::Error
+          err.message.should match(/must be Integers/)
         }
       end
     end
@@ -570,6 +599,14 @@ describe 'Backup::Model' do
         after_called_with.should be 2
       end
 
+      specify 'hooks may be overridden' do
+        block_a, block_b = Proc.new {}, Proc.new {}
+        model.before(&block_a)
+        model.before.should be(block_a)
+        model.before(&block_b)
+        model.before.should be(block_b)
+      end
+
     end # describe 'hooks'
 
   end # describe '#perform!'
@@ -719,11 +756,11 @@ describe 'Backup::Model' do
       end
     end
 
-    context 'when name is given as a module defined under Backup::Config' do
-      # this is necessary since the specs in spec/config_spec.rb
-      # remove all the constants from Backup::Config as part of those tests.
+    context 'when name is given as a module defined under Backup::Config::DSL' do
+      # this is necessary since the specs in spec/config/dsl_spec.rb
+      # remove all the constants from Backup::Config::DSL as part of those tests.
       before(:all) do
-        module Backup::Config
+        class Backup::Config::DSL
           module TestScope
             module TestKlass; end
           end
@@ -734,7 +771,7 @@ describe 'Backup::Model' do
         model.send(
           :get_class_from_scope,
           Fake,
-          Backup::Config::TestScope
+          Backup::Config::DSL::TestScope
         ).should == Fake::TestScope
       end
 
@@ -742,7 +779,7 @@ describe 'Backup::Model' do
         model.send(
           :get_class_from_scope,
           Fake,
-          Backup::Config::TestScope::TestKlass
+          Backup::Config::DSL::TestScope::TestKlass
         ).should == Fake::TestScope::TestKlass
       end
     end
@@ -833,7 +870,7 @@ describe 'Backup::Model' do
         end
 
         it 'logs that the backup failed with a non-fatal exception' do
-          Backup::Errors::ModelError.expects(:wrap).in_sequence(s).with do |err, msg|
+          Backup::Model::Error.expects(:wrap).in_sequence(s).with do |err, msg|
             err.message.should == 'non-fatal error'
             msg.should match(/Backup for test label \(test_trigger\) Failed!/)
           end.returns(error_a)
@@ -858,7 +895,7 @@ describe 'Backup::Model' do
         end
 
         it 'logs that the backup failed with a fatal exception' do
-          Backup::Errors::ModelFatalError.expects(:wrap).in_sequence(s).with do |err, msg|
+          Backup::Model::FatalError.expects(:wrap).in_sequence(s).with do |err, msg|
             err.message.should == 'fatal error'
             msg.should match(/Backup for test label \(test_trigger\) Failed!/)
           end.returns(error_a)

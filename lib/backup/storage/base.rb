@@ -3,7 +3,7 @@
 module Backup
   module Storage
     class Base
-      include Backup::Configuration::Helpers
+      include Config::Helpers
 
       ##
       # Base path on the remote where backup package files will be stored.
@@ -21,18 +21,19 @@ module Backup
       # multiple storages of the same type. If multiple storages of the same
       # type are added to a single backup model, this identifier must be set.
       # This will be appended to the YAML storage file used for cycling backups.
-      def initialize(model, storage_id = nil)
+      def initialize(model, storage_id = nil, &block)
         @model = model
         @package = model.package
         @storage_id = storage_id.to_s.gsub(/\W/, '_') if storage_id
 
         load_defaults!
+        instance_eval(&block) if block_given?
       end
 
       def perform!
         Logger.info "#{ storage_name } Started..."
         transfer!
-        cycle!
+        cycle! if respond_to?(:cycle!, true) && keep.to_i > 0
         Logger.info "#{ storage_name } Finished!"
       end
 
@@ -41,21 +42,10 @@ module Backup
       ##
       # Return the remote path for the current or given package.
       def remote_path(pkg = package)
-        File.join(path, pkg.trigger, pkg.time)
+        path.empty? ? File.join(pkg.trigger, pkg.time) :
+                      File.join(path, pkg.trigger, pkg.time)
       end
       alias :remote_path_for :remote_path
-
-      ##
-      # Adds the current package being stored to the YAML cycle data file
-      # and will remove any old Package file(s) when the storage limit
-      # set by #keep is exceeded. Any errors raised while attempting to
-      # remove older packages will be rescued and a warning will be logged
-      # containing the original error message.
-      def cycle!
-        return unless keep.to_i > 0
-        Logger.info "Cycling Started..."
-        Cycler.cycle!(self)
-      end
 
       def storage_name
         @storage_name ||= self.class.to_s.sub('Backup::', '') +

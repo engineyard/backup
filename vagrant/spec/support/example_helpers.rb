@@ -2,9 +2,11 @@
 
 module BackupSpec
   PROJECT_ROOT = '/backup.git'
-  CONFIG_TEMPLATE = File.readlines(File.join(PROJECT_ROOT, 'templates/cli/config'))
+  CONFIG_TEMPLATE = Backup::Template.new.result('cli/config')
   LOCAL_STORAGE_PATH = '/home/vagrant/Storage'
   ALT_CONFIG_PATH = '/home/vagrant/Backup_alt'
+  LOCAL_SYNC_PATH = '/home/vagrant/sync_root'
+  GPG_HOME_DIR = '/home/vagrant/gpg_home' # default would be ~/.gnupg
 
   module ExampleHelpers
 
@@ -53,7 +55,7 @@ module BackupSpec
 
         #{ text }
 
-        #{ CONFIG_TEMPLATE.join }
+        #{ CONFIG_TEMPLATE }
       EOS
 
       # Create models path, since models are always relative to the config file.
@@ -91,18 +93,22 @@ module BackupSpec
     # Runs the given trigger(s).
     #
     # Any +options+ given are passed as command line options to the
-    # `backup perform` command.
+    # `backup perform` command. These should be given as String arguments.
+    # e.g. job = backup_perform :my_backup, '--tmp-path=/tmp'
+    #
+    # The last argument given for +options+ may be a Hash, which is used
+    # as options for this method. If { :exit_status => Integer } is set,
+    # this method will rescue SystemExit and assert that the exit status
+    # is correct. This allows jobs that log warnings to continue and return
+    # the performed job(s).
     #
     # When :focus is added to an example, '--no-quiet' will be appended to
     # +options+ so you can see the log output as the backup is performed.
-    #
-    # Note that since `backup perform` will now `exit()` if any jobs have
-    # warnings or errors, it's not neccessary to check the logger for the
-    # returned jobs for errors/warnings. i.e. if `job.logger.has_warnings?`
-    # is true, the spec example will fail due to SystemExit being raised.
     def backup_perform(triggers, *options)
       triggers = Array(triggers).map(&:to_s)
-      options << '--no-quiet' if example.metadata[:focus]
+      opts = options.last.is_a?(Hash) ? options.pop : {}
+      exit_status = opts.delete(:exit_status)
+      options << '--no-quiet' if example.metadata[:focus] || ENV['VERBOSE']
       argv = ['perform', '-t', triggers.join(',')] + options
 
       # Reset config paths, utility paths and the logger.
@@ -111,11 +117,20 @@ module BackupSpec
       Backup::Logger.send(:reset!)
       # Ensure multiple runs have different timestamps
       sleep 1 unless Backup::Model.all.empty?
-      # Clear previously loaded models
-      Backup::Model.all.clear
+      # Clear previously loaded models and other class instance variables
+      Backup::Model.send(:reset!)
 
       ARGV.replace(argv)
-      Backup::CLI.start
+
+      if exit_status
+        expect do
+          Backup::CLI.start
+        end.to raise_error(SystemExit) {|exit|
+          expect( exit.status ).to be(exit_status)
+        }
+      else
+        Backup::CLI.start
+      end
 
       models = triggers.map {|t| Backup::Model.find_by_trigger(t).first }
       jobs = models.map {|m| BackupSpec::PerformedJob.new(m) }
@@ -128,6 +143,59 @@ module BackupSpec
     def dir_contents(path)
       path = File.expand_path(path)
       Dir["#{ path }/**/*"].map {|e| e.sub(/^#{ path }/, '') }.sort
+    end
+
+    # Initial Files are MD5: d3b07384d113edec49eaa6238ad5ff00
+    #
+    # ├── dir_a
+    # │   └── one.file
+    # └── dir_b
+    #     ├── dir_c
+    #     │   └── three.file
+    #     ├── bad\xFFfile
+    #     └── two.file
+    #
+    def prepare_local_sync_files
+      FileUtils.rm_rf LOCAL_SYNC_PATH
+
+      %w{ dir_a
+          dir_b/dir_c }.each do |path|
+        FileUtils.mkdir_p File.join(LOCAL_SYNC_PATH, path)
+      end
+
+      %W{ dir_a/one.file
+          dir_b/two.file
+          dir_b/bad\xFFfile
+          dir_b/dir_c/three.file }.each do |path|
+        File.open(File.join(LOCAL_SYNC_PATH, path), 'w') do |file|
+          file.puts 'foo'
+        end
+      end
+    end
+
+    # Added/Updated Files are MD5: 14758f1afd44c09b7992073ccf00b43d
+    #
+    # ├── dir_a
+    # │   ├── dir_d           (add)
+    # │   │   └── two.new     (add)
+    # │   └── one.file        (update)
+    # └── dir_b
+    #     ├── dir_c
+    #     │   └── three.file
+    #     ├── bad\377file
+    #     ├── one.new         (add)
+    #     └── two.file        (remove)
+    #
+    def update_local_sync_files
+      FileUtils.mkdir_p File.join(LOCAL_SYNC_PATH, 'dir_a/dir_d')
+      %w{ dir_a/one.file
+          dir_b/one.new
+          dir_a/dir_d/two.new }.each do |path|
+        File.open(File.join(LOCAL_SYNC_PATH, path), 'w') do |file|
+          file.puts 'foobar'
+        end
+      end
+      FileUtils.rm File.join(LOCAL_SYNC_PATH, 'dir_b/two.file')
     end
 
   end

@@ -14,7 +14,7 @@ describe Notifier::Mail do
         with(:exim).returns('/path/to/exim')
   end
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
+  it_behaves_like 'a class that includes Config::Helpers'
   it_behaves_like 'a subclass of Notifier::Base'
 
   describe '#initialize' do
@@ -28,7 +28,7 @@ describe Notifier::Mail do
       expect( notifier.user_name            ).to be_nil
       expect( notifier.password             ).to be_nil
       expect( notifier.authentication       ).to be_nil
-      expect( notifier.encryption           ).to be_nil
+      expect( notifier.encryption           ).to eq :starttls
       expect( notifier.openssl_verify_mode  ).to be_nil
       expect( notifier.sendmail_args        ).to be_nil
       expect( notifier.exim_args            ).to be_nil
@@ -53,7 +53,7 @@ describe Notifier::Mail do
         mail.user_name            = 'user'
         mail.password             = 'secret'
         mail.authentication       = 'plain'
-        mail.encryption           = :starttls
+        mail.encryption           = :none
         mail.openssl_verify_mode  = :none
         mail.sendmail_args        = '-i -t -X/tmp/traffic.log'
         mail.exim_args            = '-i -t -X/tmp/traffic.log'
@@ -76,7 +76,7 @@ describe Notifier::Mail do
       expect( notifier.user_name            ).to eq 'user'
       expect( notifier.password             ).to eq 'secret'
       expect( notifier.authentication       ).to eq 'plain'
-      expect( notifier.encryption           ).to eq :starttls
+      expect( notifier.encryption           ).to eq :none
       expect( notifier.openssl_verify_mode  ).to eq :none
       expect( notifier.sendmail_args        ).to eq '-i -t -X/tmp/traffic.log'
       expect( notifier.exim_args            ).to eq '-i -t -X/tmp/traffic.log'
@@ -143,7 +143,7 @@ describe Notifier::Mail do
             Ruby: #{ RUBY_DESCRIPTION }
 
             Project Home:  https://github.com/meskyanichi/backup
-            Documentation: https://github.com/meskyanichi/backup/wiki
+            Documentation: http://meskyanichi.github.io/backup
             Issue Tracker: https://github.com/meskyanichi/backup/issues
           EOS
         end
@@ -172,7 +172,7 @@ describe Notifier::Mail do
             Ruby: #{ RUBY_DESCRIPTION }
 
             Project Home:  https://github.com/meskyanichi/backup
-            Documentation: https://github.com/meskyanichi/backup/wiki
+            Documentation: http://meskyanichi.github.io/backup
             Issue Tracker: https://github.com/meskyanichi/backup/issues
           EOS
         end
@@ -208,7 +208,7 @@ describe Notifier::Mail do
             Ruby: #{ RUBY_DESCRIPTION }
 
             Project Home:  https://github.com/meskyanichi/backup
-            Documentation: https://github.com/meskyanichi/backup/wiki
+            Documentation: http://meskyanichi.github.io/backup
             Issue Tracker: https://github.com/meskyanichi/backup/issues
           EOS
         end
@@ -239,7 +239,7 @@ describe Notifier::Mail do
             Ruby: #{ RUBY_DESCRIPTION }
 
             Project Home:  https://github.com/meskyanichi/backup
-            Documentation: https://github.com/meskyanichi/backup/wiki
+            Documentation: http://meskyanichi.github.io/backup
             Issue Tracker: https://github.com/meskyanichi/backup/issues
           EOS
         end
@@ -275,7 +275,7 @@ describe Notifier::Mail do
             Ruby: #{ RUBY_DESCRIPTION }
 
             Project Home:  https://github.com/meskyanichi/backup
-            Documentation: https://github.com/meskyanichi/backup/wiki
+            Documentation: http://meskyanichi.github.io/backup
             Issue Tracker: https://github.com/meskyanichi/backup/issues
           EOS
         end
@@ -306,7 +306,7 @@ describe Notifier::Mail do
             Ruby: #{ RUBY_DESCRIPTION }
 
             Project Home:  https://github.com/meskyanichi/backup
-            Documentation: https://github.com/meskyanichi/backup/wiki
+            Documentation: http://meskyanichi.github.io/backup
             Issue Tracker: https://github.com/meskyanichi/backup/issues
           EOS
         end
@@ -468,127 +468,5 @@ describe Notifier::Mail do
 
   end # describe '#new_email'
 
-  describe 'deprecations' do
-
-    describe '#enable_starttls_auto' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(/Use #encryption instead/)
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers true value' do
-          notifier = Notifier::Mail.new(model) do |mail|
-            mail.enable_starttls_auto = true
-          end
-          expect( notifier.encryption ).to eq :starttls
-        end
-
-        it 'warns and transfers false value' do
-          notifier = Notifier::Mail.new(model) do |mail|
-            mail.enable_starttls_auto = false
-          end
-          expect( notifier.encryption ).to eq :none
-        end
-      end
-
-      context 'when set as a default' do
-        after { Notifier::Mail.clear_defaults! }
-
-        it 'warns and transfers true value' do
-          Notifier::Mail.defaults do |mail|
-            mail.enable_starttls_auto = true
-          end
-          notifier = Notifier::Mail.new(model)
-          expect( notifier.encryption ).to eq :starttls
-        end
-
-        it 'warns and transfers false value' do
-          Notifier::Mail.defaults do |mail|
-            mail.enable_starttls_auto = false
-          end
-          notifier = Notifier::Mail.new(model)
-          expect( notifier.encryption ).to eq :none
-        end
-      end
-    end # describe '#enable_starttls_auto'
-
-    describe '#sendmail' do
-      before do
-        # to satisfy Utilities.configure
-        File.stubs(:executable?).with('/foo').returns(true)
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use Backup::Utilities\.configure instead/
-          )
-        }
-      end
-      after do
-        Notifier::Mail.clear_defaults!
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Notifier::Mail.new(model) do |mail|
-            mail.sendmail = '/foo'
-          end
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['sendmail'] ).to eq '/foo'
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Notifier::Mail.defaults do |mail|
-            mail.sendmail = '/foo'
-          end
-          Notifier::Mail.new(model)
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['sendmail'] ).to eq '/foo'
-        end
-      end
-    end # describe '#sendmail'
-
-    describe '#exim' do
-      before do
-        # to satisfy Utilities.configure
-        File.stubs(:executable?).with('/foo').returns(true)
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use Backup::Utilities\.configure instead/
-          )
-        }
-      end
-      after do
-        Notifier::Mail.clear_defaults!
-      end
-
-      context 'when set directly' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Notifier::Mail.new(model) do |mail|
-            mail.exim = '/foo'
-          end
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['exim'] ).to eq '/foo'
-        end
-      end
-
-      context 'when set as a default' do
-        it 'should issue a deprecation warning and set the replacement value' do
-          Notifier::Mail.defaults do |mail|
-            mail.exim = '/foo'
-          end
-          Notifier::Mail.new(model)
-          # must check directly, since utility() calls are stubbed
-          expect( Utilities::UTILITY['exim'] ).to eq '/foo'
-        end
-      end
-    end # describe '#exim'
-
-  end # describe 'deprecations'
 end
 end

@@ -8,10 +8,9 @@ describe Storage::Local do
   let(:storage) { Storage::Local.new(model) }
   let(:s) { sequence '' }
 
-  it_behaves_like 'a class that includes Configuration::Helpers'
-  it_behaves_like 'a subclass of Storage::Base' do
-    let(:cycling_supported) { true }
-  end
+  it_behaves_like 'a class that includes Config::Helpers'
+  it_behaves_like 'a subclass of Storage::Base'
+  it_behaves_like 'a storage that cycles'
 
   describe '#initialize' do
 
@@ -85,9 +84,9 @@ describe Storage::Local do
         FileUtils.expects(:mkdir_p).in_sequence(s).with(remote_path)
 
         Logger.expects(:warn).in_sequence(s).with do |err|
-          expect( err ).to be_an_instance_of Errors::Storage::Local::TransferError
+          expect( err ).to be_an_instance_of Storage::Local::Error
           expect( err.message ).to eq <<-EOS.gsub(/^ +/, '  ').strip
-            Storage::Local::TransferError: Local File Copy Warning!
+            Storage::Local::Error: Local File Copy Warning!
               The final backup file(s) for 'test label' (test_trigger)
               will be *copied* to '#{ remote_path }'
               To avoid this, when using more than one Storage, the 'Local' Storage

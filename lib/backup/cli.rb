@@ -4,13 +4,15 @@
 # Build the Backup Command Line Interface using Thor
 module Backup
   class CLI < Thor
+    class Error < Backup::Error; end
+    class FatalError < Backup::FatalError; end
 
     ##
     # [Perform]
     #
     # The only required option is the --trigger [-t].
-    # If --config-file, --data-path, --cache-path, --tmp-path aren't specified
-    # they will fallback to defaults defined in Backup::Config.
+    # If --config-file, --data-path, --tmp-path or --log-path
+    # aren't specified they will fallback to defaults.
     # If --root-path is given, it will be used as the base path for our defaults,
     # as well as the base path for any option specified as a relative path.
     # Any option given as an absolute path will be used "as-is".
@@ -39,8 +41,8 @@ module Backup
 
       To use the current directory, use: `--root-path .`
 
-      Relative paths given for --config-file, --data-path, --log-path,
-      --cache-path and --tmp-path will be relative to --root-path.
+      Relative paths given for --config-file, --data-path, --tmp-path,
+      and --log-path will be relative to --root-path.
 
       Console log output may be forced using --no-quiet.
 
@@ -77,11 +79,6 @@ module Backup
                   :type     => :string,
                   :default  => '',
                   :desc     => "Path to store Backup's log file."
-
-    method_option :cache_path,
-                  :type     => :string,
-                  :default  => '',
-                  :desc     => "Path to store Dropbox's cached authorization."
 
     method_option :tmp_path,
                   :type     => :string,
@@ -128,13 +125,8 @@ module Backup
           syslog.enabled    = opts[:syslog]
         end
 
-        # Update Config variables
-        # (config_file, root_path, data_path, cache_path, tmp_path)
-        Config.update(options)
-
-        # Load the user's +config.rb+ file (and all their Models).
-        # May update Logger (and Config) options.
-        Config.load_config!
+        # Load the user's +config.rb+ file and all their Models
+        Config.load(options)
 
         # Identify all Models to be run for the given +triggers+.
         triggers = options[:trigger].split(',').map(&:strip)
@@ -142,14 +134,14 @@ module Backup
           Model.find_by_trigger(trigger)
         }.flatten.uniq
 
-        raise Errors::CLIError, "No Models found for trigger(s) " +
+        raise Error, "No Models found for trigger(s) " +
             "'#{ triggers.join(',') }'." if models.empty?
 
         # Finalize Logger and begin real-time logging.
         Logger.start!
 
       rescue Exception => err
-        Logger.error Errors::CLIError.wrap(err)
+        Logger.error Error.wrap(err)
         # Logger configuration will be ignored
         # and messages will be output to the console only.
         Logger.abort!
@@ -166,7 +158,7 @@ module Backup
         when 2
           errors = true
           unless models.empty?
-            Logger.info Errors::ModelError.new(<<-EOS)
+            Logger.info Error.new(<<-EOS)
               Backup will now continue...
               The following triggers will now be processed:
               (#{ models.map {|m| m.trigger }.join(', ') })
@@ -175,7 +167,7 @@ module Backup
         when 3
           fatal = true
           unless models.empty?
-            Logger.error Errors::ModelFatalError.new(<<-EOS)
+            Logger.error FatalError.new(<<-EOS)
               Backup will now exit.
               The following triggers will not be processed:
               (#{ models.map {|m| m.trigger }.join(', ') })
@@ -224,10 +216,9 @@ module Backup
 
     def check
       begin
-        Config.update(options)
-        Config.load_config!
+        Config.load(options)
       rescue Exception => err
-        Logger.error Errors::CLIError.wrap(err)
+        Logger.error Error.wrap(err)
       end
 
       if Logger.has_warnings? || Logger.has_errors?
@@ -253,13 +244,15 @@ module Backup
     long_desc <<-EOS.gsub(/^ +/, '')
       Generates a Backup model file.
 
-      '--config-path' is the path to the *directory* where 'config.rb' is located.
+      If your configuration file is not in the default location at
+      #{ Config.config_file }
+      you must specify it's location using '--config-file'.
+      If no configuration file exists at this location, one will be created.
 
       The model file will be created as '<config_path>/models/<trigger>.rb'
-
-      The default location would be:
-
-      #{ Config.root_path }/models/
+      Your model file will be created in a 'models/' sub-directory
+      where your config file is located. The default location would be:
+      #{ Config.root_path }/models/<trigger>.rb
     EOS
 
     method_option :trigger,
@@ -268,120 +261,73 @@ module Backup
                   :type     => :string,
                   :desc     => 'Trigger name for the Backup model'
 
-    method_option :config_path,
+    method_option :config_file,
                   :type     => :string,
-                  :desc     => 'Path to your Backup configuration directory'
+                  :desc     => 'Path to your Backup configuration file'
 
     # options with their available values
-    %w{ databases storages syncers
-        encryptors compressors notifiers }.map(&:to_sym).each do |name|
-      path = File.join(Backup::TEMPLATE_PATH, 'cli', name.to_s[0..-2])
-      method_option name, :type => :string, :desc =>
-          "(#{Dir[path + '/*'].sort.map {|p| File.basename(p) }.join(', ')})"
+    %w{ databases storages syncers encryptor compressor notifiers }.each do |name|
+      path = File.join(Backup::TEMPLATE_PATH, 'cli', name)
+      opts = Dir[path + '/*'].sort.map {|p| File.basename(p) }.join(', ')
+      method_option name, :type => :string, :desc => "(#{ opts })"
     end
 
     method_option :archives,
                   :type     => :boolean,
                   :desc     => 'Model will include tar archives.'
+
     method_option :splitter,
                   :type     => :boolean,
-                  :default  => true,
-                  :desc     => "Use `--no-splitter` to disable"
+                  :default  => false,
+                  :desc     => 'Add Splitter to the model'
 
-    define_method "generate:model" do
-      opts = options.merge(
-        :trigger      =>  options[:trigger].gsub(/\W/, '_'),
-        :config_path  =>  options[:config_path] ?
-                          File.expand_path(options[:config_path]) : nil
-      )
-      config_path    = opts[:config_path] || Config.root_path
-      models_path    = File.join(config_path, "models")
-      config         = File.join(config_path, "config.rb")
-      model          = File.join(models_path, "#{opts[:trigger]}.rb")
+    define_method 'generate:model' do
+      opts = options.merge(:trigger => options[:trigger].gsub(/\W/, '_'))
+      config_file = opts[:config_file] ?
+                    File.expand_path(opts.delete(:config_file)) : Config.config_file
+      models_path = File.join(File.dirname(config_file), 'models')
+      model_file  = File.join(models_path, "#{ opts[:trigger] }.rb")
 
-      if File.file?(config_path)
-        abort('--config-path should be a directory, not a file.')
+      unless File.exist?(config_file)
+        invoke 'generate:config', [], :config_file => config_file
       end
 
       FileUtils.mkdir_p(models_path)
-      if Helpers.overwrite?(model)
-        File.open(model, 'w') do |file|
-          file.write(
-            Backup::Template.new({:options => opts}).result("cli/model.erb")
-          )
+      if Helpers.overwrite?(model_file)
+        File.open(model_file, 'w') do |file|
+          file.write(Backup::Template.new({:options => opts}).result('cli/model'))
         end
-        puts "Generated model file: '#{ model }'."
-      end
-
-      unless File.exist?(config)
-        File.open(config, "w") do |file|
-          file.write(Backup::Template.new.result("cli/config"))
-        end
-        puts "Generated configuration file: '#{ config }'."
+        puts "Generated model file: '#{ model_file }'."
       end
     end
 
     ##
     # [Generate:Config]
     # Generates the main configuration file
-    desc 'generate:config', 'Generates the main Backup bootstrap/configuration file'
+    desc 'generate:config', 'Generates the main Backup configuration file'
 
     long_desc <<-EOS.gsub(/^ +/, '')
-      Path to your Backup configuration directory.
+      Path to the Backup configuration file to generate.
 
-      Default path would be:
+      Defaults to:
 
-      #{ Config.root_path }
+      #{ Config.config_file }
     EOS
 
-    method_option :config_path,
+    method_option :config_file,
                   :type => :string,
-                  :desc => 'Path to your Backup configuration directory.'
+                  :desc => 'Path to the Backup configuration file to generate.'
 
     define_method 'generate:config' do
-      config_path = options[:config_path] ?
-          File.expand_path(options[:config_path]) : Config.root_path
-      config = File.join(config_path, "config.rb")
+      config_file = options[:config_file] ?
+          File.expand_path(options[:config_file]) : Config.config_file
 
-      FileUtils.mkdir_p(config_path)
-      if Helpers.overwrite?(config)
-        File.open(config, "w") do |file|
-          file.write(Backup::Template.new.result("cli/config"))
+      FileUtils.mkdir_p(File.dirname(config_file))
+      if Helpers.overwrite?(config_file)
+        File.open(config_file, 'w') do |file|
+          file.write(Backup::Template.new.result('cli/config'))
         end
-        puts "Generated configuration file: '#{ config }'."
-      end
-    end
-
-    ##
-    # [Decrypt]
-    # Shorthand for decrypting encrypted files
-    desc 'decrypt', 'Decrypts encrypted files'
-    method_option :encryptor,     :type => :string,  :required => true
-    method_option :in,            :type => :string,  :required => true
-    method_option :out,           :type => :string,  :required => true
-    method_option :base64,        :type => :boolean, :default  => false
-    method_option :password_file, :type => :string,  :default  => ''
-    method_option :salt,          :type => :boolean, :default  => false
-
-    def decrypt
-      case options[:encryptor].downcase
-      when 'openssl'
-        base64   = options[:base64] ? '-base64' : ''
-        password = options[:password_file].empty? ? '' :
-            "-pass file:#{ options[:password_file] }"
-        salt     = options[:salt] ? '-salt' : ''
-
-        Helpers.exec!(
-          "openssl aes-256-cbc -d #{ base64 } #{ password } #{ salt } " +
-          "-in '#{ options[:in] }' -out '#{ options[:out] }'"
-        )
-      when 'gpg'
-        Helpers.exec!(
-          "gpg -o '#{ options[:out] }' -d '#{ options[:in] }'"
-        )
-      else
-        puts "Unknown encryptor: #{ options[:encryptor] }"
-        puts "Use either 'openssl' or 'gpg'."
+        puts "Generated configuration file: '#{ config_file }'."
       end
     end
 

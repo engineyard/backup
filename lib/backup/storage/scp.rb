@@ -4,21 +4,23 @@ require 'net/scp'
 module Backup
   module Storage
     class SCP < Base
+      include Storage::Cycler
+      class Error < Backup::Error; end
 
       ##
       # Server credentials
-      attr_accessor :username, :password
+      attr_accessor :username, :password, :ssh_options
 
       ##
       # Server IP Address and SCP port
       attr_accessor :ip, :port
 
-      def initialize(model, storage_id = nil, &block)
+      def initialize(model, storage_id = nil)
         super
-        instance_eval(&block) if block_given?
 
         @port ||= 22
         @path ||= 'backups'
+        @ssh_options ||= {}
         path.sub!(/^~\//, '')
       end
 
@@ -26,7 +28,7 @@ module Backup
 
       def connection
         Net::SSH.start(
-          ip, username, :password => password, :port => port
+          ip, username, { :password => password, :port => port }.merge(ssh_options)
         ) {|ssh| yield ssh }
       end
 
@@ -55,8 +57,7 @@ module Backup
           end
         end
         unless errors.empty?
-          raise Errors::Storage::SCP::SSHError,
-              "Net::SSH reported the following errors:\n" +
+          raise Error, "Net::SSH reported the following errors:\n" +
               errors.join("\n")
         end
       end

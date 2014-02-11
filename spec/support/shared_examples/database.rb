@@ -1,27 +1,26 @@
 # encoding: utf-8
 
-module Backup
 shared_examples 'a subclass of Database::Base' do
 
   describe '#initialize' do
 
     it 'sets a reference to the model' do
-      db = described_class.new(model)
       expect( db.model ).to be(model)
     end
 
     it 'cleans database_id for filename use' do
-      db = described_class.new(model, :my_id)
+      block = respond_to?(:required_config) ? required_config : Proc.new {}
+
+      db = described_class.new(model, :my_id, &block)
       expect( db.database_id ).to eq 'my_id'
 
-      db = described_class.new(model, 'My #1 ID')
+      db = described_class.new(model, 'My #1 ID', &block)
       expect( db.database_id ).to eq 'My__1_ID'
     end
 
     it 'sets the dump_path' do
-      db = described_class.new(model)
       expect( db.dump_path ).to eq(
-        File.join(Config.tmp_path, 'test_trigger', 'databases')
+        File.join(Backup::Config.tmp_path, 'test_trigger', 'databases')
       )
     end
 
@@ -29,7 +28,6 @@ shared_examples 'a subclass of Database::Base' do
 
   describe '#prepare!' do
     it 'creates the dump_path' do
-      db = described_class.new(model)
       FileUtils.expects(:mkdir_p).with(db.dump_path)
       db.send(:prepare!)
     end
@@ -43,22 +41,25 @@ shared_examples 'a subclass of Database::Base' do
     end
 
     it 'logs warning when model is created if database_id is needed' do
-      Logger.expects(:warn).with do |err|
-        expect( err ).to be_an_instance_of Errors::Database::ConfigurationError
+      Backup::Logger.expects(:warn).with do |err|
+        expect( err ).
+            to be_an_instance_of Backup::Database::Error
       end
 
       klass = described_class
-      Model.new(:test_model, 'test model') do
-        database klass
-        database klass, :my_id
+      block = respond_to?(:required_config) ? required_config : Proc.new {}
+      Backup::Model.new(:test_model, 'test model') do
+        database klass, nil, &block
+        database klass, :my_id, &block
       end
     end
 
     it 'auto-generates a database_id if needed' do
       klass = described_class
-      test_model = Model.new(:test_model, 'test model') do
-        database klass
-        database klass, :my_id
+      block = respond_to?(:required_config) ? required_config : Proc.new {}
+      test_model = Backup::Model.new(:test_model, 'test model') do
+        database klass, nil, &block
+        database klass, :my_id, &block
       end
       db1, db2 = test_model.databases
 
@@ -67,11 +68,12 @@ shared_examples 'a subclass of Database::Base' do
     end
 
     it 'does not warn or auto-generate database_id if only one class defined' do
-      Logger.expects(:warn).never
+      Backup::Logger.expects(:warn).never
 
       klass = described_class
-      test_model = Model.new(:test_model, 'test model') do
-        database klass
+      block = respond_to?(:required_config) ? required_config : Proc.new {}
+      test_model = Backup::Model.new(:test_model, 'test model') do
+        database klass, nil, &block
       end
       db = test_model.databases.first
 
@@ -83,24 +85,22 @@ shared_examples 'a subclass of Database::Base' do
     let(:klass_name) { described_class.name.to_s.sub('Backup::', '') }
 
     specify 'with a database_id' do
-      db = described_class.new(model, :my_id)
+      block = respond_to?(:required_config) ? required_config : Proc.new {}
+      db = described_class.new(model, :my_id, &block)
 
-      Logger.expects(:info).with("#{ klass_name } (my_id) Started...")
+      Backup::Logger.expects(:info).with("#{ klass_name } (my_id) Started...")
       db.send(:log!, :started)
 
-      Logger.expects(:info).with("#{ klass_name } (my_id) Finished!")
+      Backup::Logger.expects(:info).with("#{ klass_name } (my_id) Finished!")
       db.send(:log!, :finished)
     end
 
     specify 'without a database_id' do
-      db = described_class.new(model)
-
-      Logger.expects(:info).with("#{ klass_name } Started...")
+      Backup::Logger.expects(:info).with("#{ klass_name } Started...")
       db.send(:log!, :started)
 
-      Logger.expects(:info).with("#{ klass_name } Finished!")
+      Backup::Logger.expects(:info).with("#{ klass_name } Finished!")
       db.send(:log!, :finished)
     end
   end # describe 'log!'
-end
 end

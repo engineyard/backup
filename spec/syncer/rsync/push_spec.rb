@@ -30,8 +30,10 @@ describe Syncer::RSync::Push do
         rsync.additional_rsync_options = 'rsync options'
 
         rsync.directories do |directory|
-          directory.add "/some/directory/"
-          directory.add "~/home/directory"
+          directory.add '/some/directory/'
+          directory.add '~/home/directory'
+          directory.exclude '*~'
+          directory.exclude 'tmp/'
         end
       end
 
@@ -49,6 +51,7 @@ describe Syncer::RSync::Push do
       expect( syncer.additional_ssh_options   ).to eq 'ssh options'
       expect( syncer.additional_rsync_options ).to eq 'rsync options'
       expect( syncer.directories ).to eq ['/some/directory/', '~/home/directory']
+      expect( syncer.excludes    ).to eq ['*~', 'tmp/']
     end
 
     it 'should use default values if none are given' do
@@ -68,6 +71,7 @@ describe Syncer::RSync::Push do
       expect( syncer.additional_ssh_options   ).to be_nil
       expect( syncer.additional_rsync_options ).to be_nil
       expect( syncer.directories ).to eq []
+      expect( syncer.excludes    ).to eq []
     end
 
     it 'should use default port 22 for :ssh_daemon mode' do
@@ -297,6 +301,30 @@ describe Syncer::RSync::Push do
         syncer.expects(:create_dest_path!)
         syncer.expects(:run).with(
           "rsync --archive --opt-a --opt-b " +
+          "-e \"ssh -p 22\" " +
+          "'/this/dir' '#{ File.expand_path('that/dir') }' " +
+          "my_host:'path/on/remote'"
+        )
+        syncer.perform!
+      end
+
+      specify 'with excludes' do
+        syncer = Syncer::RSync::Push.new do |s|
+          s.mode = :ssh
+          s.host = 'my_host'
+          s.additional_rsync_options = '--opt-a --opt-b'
+          s.path = 'path/on/remote/'
+          s.directories do |dirs|
+            dirs.add '/this/dir/'
+            dirs.add 'that/dir'
+            dirs.exclude '*~'
+            dirs.exclude 'tmp/'
+          end
+        end
+
+        syncer.expects(:create_dest_path!)
+        syncer.expects(:run).with(
+          "rsync --archive --exclude='*~' --exclude='tmp/' --opt-a --opt-b " +
           "-e \"ssh -p 22\" " +
           "'/this/dir' '#{ File.expand_path('that/dir') }' " +
           "my_host:'path/on/remote'"
@@ -647,136 +675,5 @@ describe Syncer::RSync::Push do
 
   end # describe '#perform!'
 
-  describe 'deprecations' do
-
-    describe '#additional_options' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #additional_rsync_options instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          syncer = Syncer::RSync::Push.new do |s|
-            s.additional_options = ['some', 'options']
-          end
-          expect( syncer.additional_rsync_options ).to eq ['some', 'options']
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Syncer::RSync::Push.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Syncer::RSync::Push.defaults do |s|
-            s.additional_options = ['some', 'defaults']
-          end
-          syncer = Syncer::RSync::Push.new
-          expect( syncer.additional_rsync_options ).to eq ['some', 'defaults']
-        end
-      end
-    end # describe '#additional_options'
-
-    describe '#username' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #ssh_user instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          syncer = Syncer::RSync::Push.new do |s|
-            s.username = 'user_name'
-          end
-          expect( syncer.ssh_user ).to eq 'user_name'
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Syncer::RSync::Push.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Syncer::RSync::Push.defaults do |s|
-            s.username = 'default_user'
-          end
-          syncer = Syncer::RSync::Push.new
-          expect( syncer.ssh_user ).to eq 'default_user'
-        end
-      end
-    end # describe '#username'
-
-    describe '#password' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #rsync_password instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          syncer = Syncer::RSync::Push.new do |s|
-            s.password = 'secret'
-          end
-          expect( syncer.rsync_password ).to eq 'secret'
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Syncer::RSync::Push.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Syncer::RSync::Push.defaults do |s|
-            s.password = 'default_secret'
-          end
-          syncer = Syncer::RSync::Push.new
-          expect( syncer.rsync_password ).to eq 'default_secret'
-        end
-      end
-    end # describe '#password'
-
-    describe '#ip' do
-      before do
-        Logger.expects(:warn).with {|err|
-          expect( err ).to be_an_instance_of Errors::ConfigurationError
-          expect( err.message ).to match(
-            /Use #host instead/
-          )
-        }
-      end
-
-      context 'when set directly' do
-        it 'warns and transfers option value' do
-          syncer = Syncer::RSync::Push.new do |s|
-            s.ip = 'hostname'
-          end
-          expect( syncer.host ).to eq 'hostname'
-        end
-      end
-
-      context 'when set using defaults' do
-        after { Syncer::RSync::Push.clear_defaults! }
-
-        it 'warns and transfers option value' do
-          Syncer::RSync::Push.defaults do |s|
-            s.ip = 'hostname'
-          end
-          syncer = Syncer::RSync::Push.new
-          expect( syncer.host ).to eq 'hostname'
-        end
-      end
-    end # describe '#ip'
-
-  end # describe 'deprecations'
 end
 end

@@ -35,7 +35,7 @@ describe Backup::Encryptor::GPG do
     it 'should raise an error for invalid modes' do
       expect do
         encryptor.mode = 'foo'
-      end.to raise_error(Backup::Errors::Encryptor::GPG::InvalidModeError)
+      end.to raise_error(Backup::Encryptor::GPG::Error)
     end
   end # describe '#mode='
 
@@ -119,7 +119,7 @@ describe Backup::Encryptor::GPG do
 
         expect do
           encryptor.encrypt_with
-        end.to raise_error(Backup::Errors::Encryptor::GPG::EncryptionError)
+        end.to raise_error(Backup::Encryptor::GPG::Error)
       end
     end
   end # describe '#encrypt_with'
@@ -269,7 +269,7 @@ describe Backup::Encryptor::GPG do
             encryptor.send(:setup_gpg_homedir)
           end.to raise_error {|err|
             err.should
-              be_an_instance_of Backup::Errors::Encryptor::GPG::HomedirError
+              be_an_instance_of Backup::Encryptor::GPG::Error
             err.message.should match('Failed to create or set permissions')
             err.message.should match('RuntimeError: error message')
           }
@@ -352,9 +352,7 @@ describe Backup::Encryptor::GPG do
           expect do
             encryptor.send(:setup_gpg_config)
           end.to raise_error {|err|
-            err.should be_an_instance_of(
-              Backup::Errors::Encryptor::GPG::GPGConfigError
-            )
+            err.should be_an_instance_of(Backup::Encryptor::GPG::Error)
             err.message.should match('Error creating temporary file for #gpg_config')
             err.message.should match('RuntimeError: an error')
           }
@@ -537,9 +535,7 @@ describe Backup::Encryptor::GPG do
         it 'should return false and log a warning' do
           Dir.expects(:mktmpdir).raises('an error')
           Backup::Logger.expects(:warn).with do |err|
-            err.should be_an_instance_of(
-              Backup::Errors::Encryptor::GPG::PassphraseError
-            )
+            err.should be_an_instance_of(Backup::Encryptor::GPG::Error)
             err.message.should match('Error creating temporary passphrase file')
             err.message.should match('RuntimeError: an error')
           end
@@ -777,9 +773,7 @@ gXY+pNqaEE6cHrg+uQatVQITX8EoVJhQ9Z1mYJB+g62zqOQPe10Spb381O9y4dN/
       it 'should return nil and log a warning' do
         Tempfile.expects(:open).raises('an error')
         Backup::Logger.expects(:warn).with {|err|
-          err.should be_an_instance_of(
-            Backup::Errors::Encryptor::GPG::KeyImportError
-          )
+          err.should be_an_instance_of(Backup::Encryptor::GPG::Error)
           err.message.should match("Public key import failed for 'some_identifier'")
           err.message.should match('RuntimeError: an error')
         }
@@ -875,26 +869,4 @@ gXY+pNqaEE6cHrg+uQatVQITX8EoVJhQ9Z1mYJB+g62zqOQPe10Spb381O9y4dN/
     end
   end # describe '#system_identifiers'
 
-  describe 'deprecations' do
-    describe '#key' do
-      it 'should import #key, use identifier for #recipients and log a warning' do
-        encryptor.expects(:import_key).
-            with('deprecated :key', 'a public key').
-            returns('an_identifier')
-
-        Backup::Logger.expects(:warn).with {|err|
-          err.should be_an_instance_of(Backup::Errors::ConfigurationError)
-          err.message.should match(
-            "GPG#key has been deprecated as of backup v.3.0.26"
-          )
-          err.message.should match(
-            "replaced with #keys and #recipients"
-          )
-        }
-
-        encryptor.key = 'a public key'
-        encryptor.recipients.should == 'an_identifier'
-      end
-    end # describe '#key'
-  end # describe 'deprecations'
 end

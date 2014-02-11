@@ -3,10 +3,11 @@
 module Backup
   module Storage
     class Local < Base
+      include Storage::Cycler
+      class Error < Backup::Error; end
 
-      def initialize(model, storage_id = nil, &block)
+      def initialize(model, storage_id = nil)
         super
-        instance_eval(&block) if block_given?
 
         @path ||= '~/backups'
       end
@@ -47,7 +48,7 @@ module Backup
         if self == model.storages.last
           true
         else
-          Logger.warn Errors::Storage::Local::TransferError.new(<<-EOS)
+          Logger.warn Error.new(<<-EOS)
             Local File Copy Warning!
             The final backup file(s) for '#{ model.label }' (#{ model.trigger })
             will be *copied* to '#{ remote_path }'

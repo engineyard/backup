@@ -69,6 +69,8 @@ module Backup
     #   end
     #
     class GPG < Base
+      class Error < Backup::Error; end
+
       MODES = [:asymmetric, :symmetric, :both]
 
       ##
@@ -102,8 +104,7 @@ module Backup
       attr_reader :mode
       def mode=(mode)
         @mode = mode.to_sym
-        raise Errors::Encryptor::GPG::InvalidModeError,
-            "'#{ @mode }' is not a valid mode." unless MODES.include?(@mode)
+        raise Error, "'#{ @mode }' is not a valid mode." unless MODES.include?(@mode)
       end
 
       ##
@@ -215,17 +216,6 @@ module Backup
       #
       # @return [Hash]
       attr_accessor :keys
-
-      ##
-      # @deprecated Use {#keys} and {#recipients}.
-      # @!attribute key
-      attr_deprecate :key,
-        :version => '3.0.26',
-        :message => "This has been replaced with #keys and #recipients",
-        :action  => lambda {|klass, val|
-          identifier = klass.send(:import_key, 'deprecated :key', val)
-          klass.recipients = identifier
-        }
 
       ##
       # Specifies the recipients to use when encrypting the backup archive.
@@ -369,7 +359,7 @@ module Backup
       #   end
       #
       # @!scope class
-      # @see Configuration::Helpers::ClassMethods#defaults
+      # @see Config::Helpers::ClassMethods#defaults
       # @yield [config] OpenStruct object
       # @!method defaults
 
@@ -421,8 +411,7 @@ module Backup
         prepare
 
         if mode_options.empty?
-          raise Errors::Encryptor::GPG::EncryptionError,
-              "Encryption could not be performed for mode '#{ mode }'"
+          raise Error, "Encryption could not be performed for mode '#{ mode }'"
         end
 
         yield "#{ utility(:gpg) } #{ base_options } #{ mode_options }", '.gpg'
@@ -491,7 +480,7 @@ module Backup
         path
 
       rescue => err
-        raise Errors::Encryptor::GPG::HomedirError.wrap(
+        raise Error.wrap(
             err, "Failed to create or set permissions for #gpg_homedir")
       end
 
@@ -524,8 +513,7 @@ module Backup
 
       rescue => err
         cleanup
-        raise Errors::Encryptor::GPG::GPGConfigError.wrap(
-            err, "Error creating temporary file for #gpg_config.")
+        raise Error.wrap(err, "Error creating temporary file for #gpg_config.")
       end
 
       ##
@@ -591,8 +579,7 @@ module Backup
         file.path
 
       rescue => err
-        Logger.warn Errors::Encryptor::GPG::PassphraseError.wrap(
-            err, "Error creating temporary passphrase file.")
+        Logger.warn Error.wrap(err, "Error creating temporary passphrase file.")
         false
       end
 
@@ -691,7 +678,7 @@ module Backup
         keyid
 
       rescue => err
-        Logger.warn Errors::Encryptor::GPG::KeyImportError.wrap(
+        Logger.warn Error.wrap(
             err, "Public key import failed for '#{ identifier }'")
         nil
       end

@@ -4,14 +4,15 @@ require 'fog'
 module Backup
   module Storage
     class Ninefold < Base
+      include Storage::Cycler
+      class Error < Backup::Error; end
 
       ##
       # Ninefold Credentials
       attr_accessor :storage_token, :storage_secret
 
-      def initialize(model, storage_id = nil, &block)
+      def initialize(model, storage_id = nil)
         super
-        instance_eval(&block) if block_given?
 
         @path ||= 'backups'
         path.sub!(/^\//, '')
@@ -58,8 +59,7 @@ module Backup
         remote_path = remote_path_for(package)
         directory = directory_for(remote_path)
 
-        raise Errors::Storage::Ninefold::NotFoundError,
-            "Directory at '#{ remote_path }' not found" unless directory
+        raise Error, "Directory at '#{ remote_path }' not found" unless directory
 
         package.filenames.each do |filename|
           file = directory.files.get(filename)
