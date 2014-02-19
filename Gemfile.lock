@@ -16,10 +16,10 @@ GEM
       json
     equalizer (0.0.9)
     excon (0.31.0)
-    ey-core (0.4.35)
+    ey-core (0.4.38)
       addressable
       cistern (~> 0.3.2)
-      ey-hmac
+      ey-hmac (~> 0.0.5)
       faraday (~> 0.8.8)
       faraday_middleware (~> 0.8.8)
       mime-types (< 2.0)

@@ -14,6 +14,9 @@ module Backup
     let(:storage) { Storage::EngineYard.new(model) }
     let(:s) { sequence '' }
 
+    let(:core_api_url) { "http://api-backup.engineyard.localdev.com" }
+    let(:token) { Ey::Core::Client::Mock.for(:server).token }
+
     # There are no specs here because the existing storage specs
     # mock everything including the S3 interactions.
     # We've tested the Engine Yard storage backend manually.
@@ -21,19 +24,28 @@ module Backup
       let(:cycling_supported) { true }
     end
 
+    around(:each) do |example|
+      begin
+        files = model.package.filenames.map { |f| File.write(File.join(Config.tmp_path, f), "!515") }
+        example.run
+      ensure
+        files.each { |f| FileUtils.remove_entry_secure(f) }
+      end
+    end
+
     describe '#connection' do
-      let(:connection) { mock }
+      let(:connection)   { mock }
 
       before do
-        storage.instance_token = 'my_token'
-        storage.core_api_url = 'my_url'
+        storage.instance_token = token
+        storage.core_api_url = core_api_url
       end
 
       it 'yields a connection to the remote server' do
         Ey::Core::Client.expects(:new).with(
-          :token  => 'my_token',
-          :url    => 'my_url',
-          :logger    => nil,
+          :token  => token,
+          :url    => core_api_url,
+          :logger => nil,
         ).yields(connection)
 
         storage.send(:connection) do |ey|
@@ -50,11 +62,10 @@ module Backup
 
     describe '#transfer!' do
       before do
-        storage.instance_token = "0942fee6-6f3d-4d15-bb6f-30672b9de576"
+        storage.instance_token = token
       end
 
       it 'transfers the package files' do
-        pending "need core work"
         expect {
           storage.send(:transfer!)
         }.not_to raise_error

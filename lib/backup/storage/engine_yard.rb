@@ -48,7 +48,7 @@ module Backup
 
           Logger.info "EngineYard performing upload of '#{File.join(src)}' to '#{backup_file.upload_url}'."
 
-          backup_file.upload(file: File.join(src))
+          backup_file.upload(file: src)
         end
         Logger.info "Finished uploading files for backup [#{backup.id}]"
 
