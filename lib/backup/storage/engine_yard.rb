@@ -42,8 +42,18 @@ module Backup
 
         package.filenames.each do |filename|
           src = File.join(Config.tmp_path, filename)
+          metadata = {}
 
-          backup_file = backup.files.create(filename: src)
+          [:sha512, :sha1, :cksum].each do |cmd|
+            if system "which #{cmd}"
+              metadata[cmd] = %x|#{cmd} #{src}|.split.first
+              break
+            end
+          end
+
+          metadata[:size]  = %x|ls -sh #{src}|.split.first
+
+          backup_file = backup.files.create(filename: src, metadata: metadata)
           Logger.info "Created backup file [#{backup_file.id}]"
 
           Logger.info "EngineYard performing upload of '#{File.join(src)}' to '#{backup_file.upload_url}'."

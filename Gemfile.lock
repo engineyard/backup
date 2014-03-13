@@ -8,7 +8,7 @@ GEM
     builder (3.2.2)
     celluloid (0.15.2)
       timers (~> 1.1.0)
-    cistern (0.3.2)
+    cistern (0.5.4)
     coderay (1.1.0)
     descendants_tracker (0.0.3)
     diff-lcs (1.2.5)
@@ -16,15 +16,15 @@ GEM
       json
     equalizer (0.0.9)
     excon (0.31.0)
-    ey-core (0.4.38)
+    ey-core (0.5.5)
       addressable
-      cistern (~> 0.3.2)
-      ey-hmac (~> 0.0.5)
+      cistern (~> 0.5.4)
+      ey-hmac (~> 0.1.1)
       faraday (~> 0.8.8)
       faraday_middleware (~> 0.8.8)
       mime-types (< 2.0)
       sshkey
-    ey-hmac (0.0.5)
+    ey-hmac (0.1.1)
     faraday (0.8.9)
       multipart-post (~> 1.2.0)
     faraday_middleware (0.8.8)
