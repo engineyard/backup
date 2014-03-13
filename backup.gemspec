@@ -47,7 +47,7 @@ Gem::Specification.new do |gem|
   gem.add_dependency 'dropbox-sdk', '= 1.5.1'
   gem.add_dependency 'equalizer', '= 0.0.9'
   gem.add_dependency 'excon', '= 0.31.0'
-  gem.add_dependency 'ey-core', '= 0.5.5'
+  gem.add_dependency 'ey-core', '= 0.5.6'
   gem.add_dependency 'ey-hmac', '= 0.1.1'
   gem.add_dependency 'faraday', '= 0.8.9'
   gem.add_dependency 'faraday_middleware', '= 0.8.8'

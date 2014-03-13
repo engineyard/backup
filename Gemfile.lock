@@ -16,7 +16,7 @@ GEM
       json
     equalizer (0.0.9)
     excon (0.31.0)
-    ey-core (0.5.5)
+    ey-core (0.5.6)
       addressable
       cistern (~> 0.5.4)
       ey-hmac (~> 0.1.1)
